@@ -1,0 +1,14 @@
+{
+  "name": "arkham-monorepo",
+  "version": "1.0.0",
+  "description": "Arkham Multi-Module Ecosystem Workspace",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "stt:start": "npm start --workspace=services/stt-proxy",
+    "stt:dev": "npm run dev --workspace=services/stt-proxy"
+  }
+}

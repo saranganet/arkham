@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SonicScribe - Audio Dictation & Transcriber</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="app-wrapper">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">✏️</span>
+        <h1>SonicScribe <span class="sub-brand">Dictation</span></h1>
+      </div>
+      
+      <div class="system-status">
+        <div class="badge" id="status-mic">
+          <span class="badge-dot dot-inactive"></span>
+          <span class="badge-text">Mic: Ready</span>
+        </div>
+        <div class="badge" id="status-server">
+          <span class="badge-dot dot-inactive"></span>
+          <span class="badge-text">Server: Ready</span>
+        </div>
+        <div class="badge" id="status-deepgram">
+          <span class="badge-dot dot-inactive"></span>
+          <span class="badge-text">Deepgram: Ready</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-layout">
+      <!-- Sidebar Settings -->
+      <aside class="sidebar-settings">
+        <div class="settings-card">
+          <h2>Transcription Options</h2>
+          
+          <div class="field">
+            <label for="select-model">Acoustic Model</label>
+            <select id="select-model">
+              <option value="nova-3" selected>Nova-3 (Default)</option>
+              <option value="nova-2">Nova-2 (Stable)</option>
+              <option value="enhanced">Enhanced (Universal)</option>
+              <option value="base">Base (Fast)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="select-language">Language</label>
+            <select id="select-language">
+              <option value="en-US" selected>English (US)</option>
+              <option value="en-GB">English (UK)</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="hi">Hindi</option>
+              <option value="ja">Japanese</option>
+            </select>
+          </div>
+
+          <div class="checkboxes">
+            <label class="checkbox-container">
+              <input type="checkbox" id="check-smartformat" checked>
+              <span class="checkmark"></span>
+              <span class="checkbox-label">Smart Punctuation</span>
+            </label>
+
+            <label class="checkbox-container">
+              <input type="checkbox" id="check-interim" checked>
+              <span class="checkmark"></span>
+              <span class="checkbox-label">Live Draft Display</span>
+            </label>
+
+            <label class="checkbox-container">
+              <input type="checkbox" id="check-diarize">
+              <span class="checkmark"></span>
+              <span class="checkbox-label">Speaker Separation</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="metrics-card">
+          <div class="metric-row">
+            <span class="metric-name">Audio Chunks</span>
+            <span class="metric-value" id="val-packets">0</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-name">Word Count</span>
+            <span class="metric-value" id="transcript-meta">0 words</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Document Editor Sheet -->
+      <div class="editor-sheet">
+        <!-- Recording Toolbar -->
+        <div class="toolbar">
+          <button id="btn-record" class="record-button">
+            <span class="record-icon"></span>
+            <span id="btn-record-text">Start Dictation</span>
+          </button>
+          
+          <div class="visualizer-bar-container">
+            <canvas id="visualizer" width="300" height="24"></canvas>
+            <div id="visualizer-fallback" class="visualizer-fallback">Visualizer ready</div>
+          </div>
+        </div>
+
+        <!-- Error Banner -->
+        <div id="error-banner" class="alert-banner hidden">
+          <span class="alert-text" id="error-message"></span>
+          <button id="btn-close-error" class="alert-close">&times;</button>
+        </div>
+
+        <!-- Document Writing Area -->
+        <div class="document-container">
+          <div id="transcript-history" class="document-content">
+            <span class="editor-placeholder" id="transcript-placeholder">
+              Click "Start Dictation" above and begin speaking. Your words will flow here directly into the document editor...
+            </span>
+          </div>
+          
+          <div id="transcript-interim-wrapper" class="document-interim-line hidden">
+            <span class="interim-indicator">Drafting:</span>
+            <span id="transcript-interim" class="interim-text"></span>
+          </div>
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="editor-footer">
+          <button id="btn-copy" class="action-btn" disabled>Copy Text</button>
+          <button id="btn-download" class="action-btn" disabled>Save File (.txt)</button>
+          <button id="btn-clear" class="action-btn action-danger" disabled>Reset Sheet</button>
+        </div>
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      <p>SonicScribe Dictation Utility &bull; Proxied to Deepgram Services</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
