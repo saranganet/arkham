@@ -1,0 +1,166 @@
+AI Sales Copilot - Project Context Document
+Current Status
+
+Product Vision
+Build a real-time AI Sales Copilot that assists sales representatives during live sales calls.
+This is NOT a transcription product.
+This is NOT a meeting note-taking product.
+The purpose of the system is to help sales reps perform better during live conversations.
+Examples:
+	•	Competitor battlecards
+	•	Objection handling
+	•	Product knowledge assistance
+	•	Discovery guidance
+	•	Deal coaching
+	•	Call memory
+	•	Real-time sales intelligence
+Comparable vision:
+"Cluely for Sales"
+
+Core Moat
+The core moat is not transcription.
+The core moat is not LLM access.
+The core moat is becoming the intelligence layer that removes everything except the conversation itself.
+The ideal future state:
+The sales rep only needs to focus on the customer conversation.
+The system handles:
+	•	Remembering details
+	•	Tracking discovery
+	•	Tracking objections
+	•	Tracking competitors
+	•	Tracking buying signals
+	•	Surfacing battlecards
+	•	Surfacing product knowledge
+	•	Surfacing relevant context
+	•	Surfacing next conversation directions
+The AI acts as a second brain for the salesperson.
+The salesperson focuses only on human interaction.
+
+Core Product Principles
+	•	Human-first assistance
+The AI assists the rep.
+The AI does not replace the rep.
+
+	•	Preserve authenticity
+The system should avoid creating scripted conversations.
+
+	•	Direction over scripting
+The system should guide thinking.
+The system should not generate responses to be read verbatim.
+
+	•	Intelligence lives on backend
+The extension is only a UI layer.
+
+	•	Attention is scarce
+Most transcript should generate no suggestion.
+Only important moments deserve rep attention.
+
+Chrome Extension Strategy
+Initial distribution:
+Chrome Extension
+Stack:
+	•	React
+	•	TypeScript
+	•	Tailwind
+	•	shadcn/ui
+Supported Platforms:
+	•	Salesforce
+	•	HubSpot
+	•	Zoho
+	•	Freshsales
+	•	Exotel
+	•	Browser-based CRMs
+
+AI Lane Architecture
+Lane 1 - Reflex Lane
+Purpose:
+Instant reactions.
+Examples:
+	•	Competitor detection
+	•	Objection detection
+	•	Battlecard retrieval
+No LLM.
+Target latency:
+<100ms
+
+Lane 2 - Hybrid Lane
+Purpose:
+Handle unknown competitors and unknown entities.
+Uses LLM.
+Generates temporary battlecards.
+Caches results.
+
+Lane 3 - Tactical Lane
+Purpose:
+Answer product questions.
+Uses:
+	•	Qdrant
+	•	RAG
+	•	Product documentation
+	•	Security documentation
+	•	Pricing documentation
+
+Lane 4 - Strategic Lane
+Purpose:
+Coach the rep.
+Examples:
+	•	Budget not discussed
+	•	Decision maker missing
+	•	Timeline missing
+	•	Buying intent increasing
+Runs periodically.
+
+Lane 5 - Memory Lane
+Purpose:
+Maintain call state.
+Tracks:
+	•	Budget
+	•	Timeline
+	•	Competitors
+	•	Risks
+	•	Objections
+	•	Decision makers
+	•	Buying signals
+All other lanes read from memory.
+
+Event Architecture Philosophy
+The system should not react to transcript chunks.
+The system should react to meaningful events.
+Wrong:
+Transcript ↓ Lane ↓ Suggestion
+Correct:
+Transcript ↓ Event Detector ↓ Event ↓ Lane ↓ Suggestion
+
+Conversation Guidance Philosophy
+The system should not generate scripts.
+The system should not generate responses.
+The system should generate:
+Direction + Supporting Context
+Example:
+Talk about implementation timeline
+Salesforce → consulting-heavy
+HubSpot → faster onboarding
+The exact UI is intentionally undecided.
+Only the philosophy is locked.
+
+Security Philosophy
+Preferred architecture:
+Zero Retention Mode
+Audio deleted after processing.
+Optional retention modes may exist later.
+Customer data is never used to train models.
+Multi-tenant isolation is mandatory.
+
+Major Architecture Decisions Already Made
+✓ Event Detector required
+✓ Transcript Aggregator required
+✓ Suggestion Ranker required
+✓ Memory Lane required
+✓ NATS Event Bus required
+✓ Multi-tenant architecture required
+✓ Direction-first guidance required
+✓ Anti-script philosophy adopted
+✓ UI rendering intentionally deferred
+
+
+

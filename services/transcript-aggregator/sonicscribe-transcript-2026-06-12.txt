@@ -1,0 +1,55 @@
+[00:00.0] Speaker 0: Hello, Soham. How's your day going today?
+[00:04.6] Speaker 1: Hi. My day was great. How about
+[00:04.6] Speaker 0: you?
+[00:09.2] Speaker 0: My day was great too.
+[00:12.8] Speaker 0: You know, I had been
+[00:16.3] Speaker 0: I had been working
+[00:19.6] Speaker 0: the whole day the day. I
+[00:23.1] Speaker 1: suppose I question
+[00:23.1] Speaker 0: that.
+[00:27.2] Speaker 0: Maybe maybe I was not working the whole day.
+[00:31.7] Speaker 0: But I'll be
+[00:31.7] Speaker 1: working.
+[00:35.3] Speaker 1: I I
+[00:35.3] Speaker 0: get I I get. Yep. Yep. Right.
+[00:39.9] Speaker 0: So do you think the feature is working?
+[00:48.7] Speaker 1: Kind of perfectly.
+[00:52.3] Speaker 0: So right now, the feature is actually sending
+[00:55.6] Speaker 0: upper Deepgram only sends you chunks. Okay? It's only probably sending you maybe.
+[01:00.5] Speaker 0: Maybe. I was I was working
+[01:00.5] Speaker 1: the
+[01:00.5] Speaker 0: whole
+[01:04.8] Speaker 0: chance like that. Mhmm. And agree
+[01:08.5] Speaker 0: is trying to make it into sentences.
+[01:17.2] Speaker 0: Apparently, these punctuation is only
+[01:21.8] Speaker 0: already given
+[01:21.8] Speaker 1: by
+[01:21.8] Speaker 0: Deepgram. Mhmm.
+[01:24.8] Speaker 0: Punctuation mostly
+[01:28.3] Speaker 0: time a punctuation mark like this or dot,
+[01:31.5] Speaker 0: if your question mark offers, it's separating.
+[01:35.2] Speaker 0: Punctuation, definitely one thing. Other thing is
+[01:38.2] Speaker 0: when I am, like, murmuring, you know, like this and not
+[01:42.5] Speaker 0: really sure, something like this.
+[01:57.9] Speaker 0: But wait.
+[02:02.9] Speaker 0: There will be there's an
+[02:07.5] Speaker 0: solution for this.
+[02:07.5] Speaker 1: However, instead of taking chunks from there, if you take the
+[02:12.1] Speaker 1: microphone axis of laptop and speaker axis of speaker axis
+[02:16.6] Speaker 1: distinguish
+[02:23.4] Speaker 0: Is that possible?
+[02:23.4] Speaker 1: That's not that's possible.
+[02:31.5] Speaker 0: Okay. That's a complete different idea.
+[02:35.3] Speaker 1: Transcript
+[02:35.3] Speaker 0: Transcribe Mhmm.
+[02:43.3] Speaker 1: Microphone
+[03:01.9] Speaker 0: Speakers
+[03:09.1] Speaker 0: speaker audio
+[03:15.8] Speaker 0: audio format
+[03:29.7] Speaker 0: Sorry. Sorry. Sorry.
+[03:42.8] Speaker 0: That was a bigger question. How? You should do that maybe then?
+[03:47.3] Speaker 1: Some constant we can't can't it specially for exotel. Right?
+[03:56.1] Speaker 0: Why are we doing specific? Let's just use for speaker and microphone.
+[03:59.8] Speaker 1: Not only intensity, I should go away.
+[03:59.8] Speaker 0: Let's smell a bit serious about that then.
+[04:07.8] Speaker 0: Also, do you think it's working fine?

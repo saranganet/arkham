@@ -1,0 +1,168 @@
+AI Sales Copilot - Master Product Roadmap & SDLC Tracker
+Current Phase:
+🟡 System Architecture & Design
+
+Phase 0 - Market Validation
+Goal:
+Validate that the problem is worth solving.
+Status:
+🟢 Completed
+Tasks:
+	•	Identify problem
+	•	Define ICP
+	•	Define product vision
+	•	Validate sales copilot opportunity
+	•	Define core use cases
+
+Phase 1 - Product Definition
+Goal:
+Define what we are building.
+Status:
+🟢 Completed
+Tasks:
+	•	Define product vision
+	•	Define Chrome extension approach
+	•	Define real-time assistance approach
+	•	Define AI lane architecture
+	•	Define product moat
+	•	Define anti-script philosophy
+
+Phase 2 - System Architecture & Design
+Goal:
+Design entire technical system.
+Status:
+🟡 In Progress
+Tasks:
+Event Architecture
+	•	Event taxonomy
+	•	Event schemas
+	•	Event priorities
+	•	Event deduplication
+Transcript Architecture
+	•	Transcript Aggregator
+	•	Speaker tracking
+	•	Interruption handling
+	•	Utterance finalization
+Event Detector
+	•	Trigger rules
+	•	Rule engine
+	•	Classifier design
+	•	LLM trigger rules
+Memory Architecture
+	•	Memory schema
+	•	Extraction logic
+	•	Persistence rules
+Lane Architecture
+	•	Reflex Lane spec
+	•	Hybrid Lane spec
+	•	Tactical Lane spec
+	•	Strategic Lane spec
+	•	Memory Lane spec
+Suggestion System
+	•	Suggestion schema
+	•	Ranking logic
+	•	Deduplication
+	•	Expiration rules
+Infrastructure
+	•	NATS design
+	•	WebSocket design
+	•	Postgres design
+	•	Redis design
+	•	Qdrant design
+Security
+	•	Retention strategy
+	•	PII redaction
+	•	RBAC
+	•	Audit logs
+
+Phase 3 - UX Design
+Goal:
+Design user experience.
+Status:
+⚪ Not Started
+Tasks:
+	•	Sidebar wireframes
+	•	Suggestion cards
+	•	Battlecard UI
+	•	Call memory UI
+	•	Alert UI
+	•	User testing
+	•	Rep feedback sessions
+Note:
+Rendering format intentionally postponed until architecture stabilizes.
+
+Phase 4 - Engineering Planning
+Goal:
+Prepare implementation.
+Status:
+⚪ Not Started
+Tasks:
+	•	Service boundaries
+	•	API contracts
+	•	Database migrations
+	•	Deployment architecture
+	•	CI/CD design
+	•	Monitoring plan
+
+Phase 5 - MVP Build
+Status:
+⚪ Not Started
+Tasks:
+	•	Chrome Extension
+	•	WebSocket
+	•	Exotel Integration
+	•	STT Integration
+	•	Transcript Aggregator
+	•	Event Detector
+	•	Reflex Lane
+	•	Memory Lane
+	•	Suggestion Ranker
+
+Phase 6 - Internal Alpha
+Status:
+⚪ Not Started
+Tasks:
+	•	Internal testing
+	•	Latency testing
+	•	Bug fixing
+	•	Call quality evaluation
+
+Phase 7 - Beta Customers
+Status:
+⚪ Not Started
+Tasks:
+	•	First pilot customer
+	•	Feedback collection
+	•	UX improvements
+	•	Lane tuning
+
+Phase 8 - PMF Search
+Status:
+⚪ Not Started
+Tasks:
+	•	10 paying customers
+	•	Retention analysis
+	•	Usage analysis
+	•	Pricing validation
+
+Phase 9 - Enterprise Readiness
+Status:
+⚪ Not Started
+Tasks:
+	•	SSO
+	•	Security documentation
+	•	DPA
+	•	SOC2 Type I
+	•	Enterprise onboarding
+
+Phase 10 - Scale
+Status:
+⚪ Not Started
+Tasks:
+	•	Multi-region deployment
+	•	Cost optimization
+	•	SOC2 Type II
+	•	Enterprise sales motion
+
+
+

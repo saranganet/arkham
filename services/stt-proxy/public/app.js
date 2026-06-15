@@ -216,6 +216,8 @@ function connectProxyWebSocket() {
         }
       } else if (payload.type === "transcript") {
         handleDeepgramResponse(payload.data);
+      } else if (payload.type === "finalized_utterance") {
+        handleFinalizedUtterance(payload.data);
       } else if (payload.type === "error") {
         showError(payload.message);
         stopRecording();
@@ -315,6 +317,26 @@ function handleDeepgramResponse(data) {
       transcriptHistory.scrollTop = transcriptHistory.scrollHeight;
     }
   }
+}
+
+function handleFinalizedUtterance(utterance) {
+  const container = document.getElementById("aggregator-output");
+  if (!container) return;
+  
+  // Remove placeholder if present
+  if (container.firstElementChild && container.firstElementChild.style.fontStyle === "italic") {
+    container.innerHTML = "";
+  }
+  
+  const div = document.createElement("div");
+  div.style.background = "#fff";
+  div.style.padding = "8px";
+  div.style.borderRadius = "4px";
+  div.style.border = "1px solid #bae6fd";
+  div.innerHTML = `<strong style="color: #0284c7;">[Speaker ${utterance.speaker}]</strong> ${utterance.text} <span style="color: #94a3b8; font-size: 11px; float: right;">${utterance.start.toFixed(1)}s - ${utterance.end.toFixed(1)}s</span>`;
+  
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
 
 function appendFinalTranscript(alternative, timestamp) {

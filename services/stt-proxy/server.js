@@ -5,6 +5,7 @@ import { DeepgramClient } from "@deepgram/sdk";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { TranscriptAggregator } from "../transcript-aggregator/Aggregator.js";
 
 // Load environment variables
 dotenv.config();
@@ -53,12 +54,21 @@ wss.on("connection", async (ws, req) => {
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
   let dgConnection;
 
+  // Initialize Transcript Aggregator
+  const aggregator = new TranscriptAggregator({ watchdogTimeout: 2000 });
+  aggregator.on('utterance', (utt) => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: "finalized_utterance", data: utt }));
+    }
+  });
+
   try {
     const connectOptions = {
       model,
       language,
       smart_format: smartFormat,
       interim_results: interimResults,
+      endpointing: 500, // Enable Deepgram VAD (500ms silence threshold)
     };
 
     if (diarize) {
@@ -96,6 +106,12 @@ wss.on("connection", async (ws, req) => {
 
   // Forward transcripts from Deepgram to the browser client
   dgConnection.on("message", (message) => {
+    try {
+      aggregator.processChunk(message);
+    } catch (e) {
+      console.error("Aggregator error:", e);
+    }
+
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({
         type: "transcript",
@@ -107,6 +123,7 @@ wss.on("connection", async (ws, req) => {
   // Handle Deepgram closure
   dgConnection.on("close", (event) => {
     console.log("Deepgram connection closed:", event);
+    aggregator.flush();
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({
         type: "status",
@@ -160,6 +177,7 @@ wss.on("connection", async (ws, req) => {
   // Cleanup on client disconnect
   ws.on("close", () => {
     console.log("Client browser disconnected.");
+    aggregator.flush();
     if (dgConnection) {
       try {
         dgConnection.close();

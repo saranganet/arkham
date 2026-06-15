@@ -1,0 +1,383 @@
+AI Sales Copilot - System Design & Architecture Document
+Current Status:
+	•	Streaming STT Design
+	•	Transcript Aggregator Design
+	•	Event Detector Design
+	•	NATS Architecture
+	•	AI Lane Architecture
+	•	Suggestion Ranker Design
+	•	WebSocket Architecture
+	•	Chrome Extension Integration
+Purpose:
+This document defines the technical architecture of the AI Sales Copilot.
+It contains:
+	•	System architecture
+	•	Component responsibilities
+	•	Data flow
+	•	Service boundaries
+	•	Technical decisions
+	•	Open architecture questions
+	•	Architecture TODOs
+This document should evolve until implementation begins.
+
+High-Level Architecture
+Exotel ↓ Audio Stream ↓ Streaming STT ↓ Transcript Aggregator ↓ Event Detector ↓ NATS Event Bus ↓ AI Lanes ↓ Suggestion Ranker ↓ WebSocket Gateway ↓ Chrome Extension
+
+Core Architecture Principles
+Human-First Assistance
+The AI assists the rep.
+The AI does not replace the rep.
+
+Direction Over Scripts
+The system should generate:
+Direction + Supporting Context
+The system should not generate:
+	•	Long responses
+	•	Read-aloud scripts
+	•	Complete paragraphs
+Example:
+Talk about implementation timeline
+Salesforce → consulting-heavy
+HubSpot → faster onboarding
+Exact rendering intentionally undecided.
+
+Event-Driven Architecture
+The system reacts to events.
+Not transcript chunks.
+Not every sentence.
+Not every utterance.
+Architecture:
+Transcript ↓ Event Detector ↓ Event ↓ Lane ↓ Suggestion
+
+Backend-Centric Intelligence
+Chrome Extension = UI only.
+All intelligence remains on backend.
+
+Component Architecture
+1. Streaming STT Service
+Purpose:
+Convert audio into transcript chunks.
+Responsibilities:
+	•	Audio ingestion
+	•	Streaming transcription
+	•	Speaker attribution
+	•	Low-latency transcript generation
+Output:
+Partial transcript events
+Architecture TODO
+	•	Select STT provider
+	•	Define speaker separation strategy
+	•	Define transcript format
+
+2. Transcript Aggregator
+Purpose:
+Convert noisy transcript chunks into meaningful utterances.
+Responsibilities:
+	•	Merge chunks
+	•	Reconstruct sentences
+	•	Handle interruptions
+	•	Handle speaker switching
+	•	Produce finalized utterances
+Output:
+Finalized utterances
+Important:
+All downstream services consume finalized utterances.
+Not raw chunks.
+Architecture TODO
+	•	Define aggregation strategy
+	•	Define interruption handling
+	•	Define utterance completion logic
+	•	Define buffering strategy
+	•	Define latency targets
+
+3. Event Detector
+Purpose:
+Identify meaningful events.
+Responsibilities:
+	•	Detect state changes
+	•	Detect sales-relevant moments
+	•	Trigger downstream processing
+Philosophy:
+Trigger on events.
+Not transcript arrival.
+Architecture TODO
+	•	Define event taxonomy
+	•	Define event schemas
+	•	Define event priorities
+	•	Define event deduplication
+	•	Define event expiration
+
+Event Categories
+Memory Events
+Examples:
+	•	budget_added
+	•	competitor_added
+	•	timeline_added
+	•	decision_maker_added
+TODO
+	•	Define all memory events
+
+Conversation Events
+Examples:
+	•	product_question
+	•	pricing_question
+	•	security_question
+	•	competitor_question
+TODO
+	•	Define all conversation events
+
+Hybrid Events
+Examples:
+	•	unknown_competitor
+	•	unknown_product
+	•	unknown_integration
+TODO
+	•	Define hybrid event triggers
+
+Strategic Events
+Examples:
+	•	missing_budget
+	•	missing_timeline
+	•	missing_decision_maker
+TODO
+	•	Define strategic event generation
+
+Buying Signal Events
+Examples:
+	•	high_intent
+	•	evaluation_active
+	•	procurement_stage
+TODO
+	•	Define buying signal logic
+
+Event Trigger Strategy
+Rule-Based Detection
+No LLM.
+Examples:
+	•	Competitor names
+	•	Budget mentions
+	•	Timeline mentions
+	•	Pricing mentions
+TODO
+	•	Define rule engine
+
+Classifier Detection
+Small model.
+Examples:
+	•	Objection detection
+	•	Buying signal detection
+	•	Intent classification
+TODO
+	•	Define classifier architecture
+
+LLM Detection
+Used only when necessary.
+Examples:
+	•	Unknown competitor
+	•	Complex product question
+	•	Unknown integration
+TODO
+	•	Define LLM trigger rules
+
+4. NATS Event Bus
+Purpose:
+Transport events.
+Not routing logic.
+Responsibilities:
+	•	Publish events
+	•	Subscribe services
+	•	Decouple components
+TODO
+	•	Define NATS subjects
+	•	Define event routing
+	•	Define retry strategy
+	•	Define failure handling
+
+5. Memory Lane
+Purpose:
+Maintain structured call memory.
+Storage:
+Redis
+Tracks:
+	•	Budget
+	•	Timeline
+	•	Competitors
+	•	Objections
+	•	Risks
+	•	Buying signals
+	•	Decision makers
+Example:
+{ "budget":"50k", "timeline":"Q4", "competitors":["Salesforce"] }
+TODO
+	•	Define memory schema
+	•	Define update logic
+	•	Define extraction logic
+	•	Define persistence strategy
+
+6. Reflex Lane
+Purpose:
+Instant reactions.
+Target Latency:
+<100ms
+No LLM.
+Uses:
+	•	Battlecards
+	•	Playbooks
+	•	Competitor database
+	•	Objection rules
+TODO
+	•	Define battlecard format
+	•	Define competitor matching
+	•	Define objection handling logic
+
+7. Hybrid Lane
+Purpose:
+Handle unknown entities.
+Flow:
+Unknown Competitor ↓ LLM ↓ Temporary Battlecard ↓ Cache
+TODO
+	•	Define battlecard generation
+	•	Define cache strategy
+	•	Define refresh strategy
+
+8. Tactical Lane
+Purpose:
+Answer product questions.
+Flow:
+Question ↓ Retrieval ↓ LLM ↓ Suggestion
+Uses:
+	•	Product Docs
+	•	Pricing Docs
+	•	Security Docs
+	•	FAQs
+TODO
+	•	Define retrieval architecture
+	•	Define prompt architecture
+	•	Define Qdrant collections
+	•	Define response format
+
+9. Strategic Lane
+Purpose:
+Coach the rep.
+Examples:
+	•	Missing budget
+	•	Missing timeline
+	•	Missing decision maker
+	•	Increasing intent
+Runs periodically.
+TODO
+	•	Define coaching rules
+	•	Define scheduling logic
+	•	Define gap detection logic
+
+10. Suggestion Ranker
+Purpose:
+Multiple lanes may produce outputs.
+Responsibilities:
+	•	Deduplication
+	•	Prioritization
+	•	Ranking
+	•	Expiration
+Only highest-value suggestions should reach the sidebar.
+TODO
+	•	Define suggestion schema
+	•	Define ranking algorithm
+	•	Define expiration rules
+	•	Define priority scoring
+
+11. WebSocket Gateway
+Purpose:
+Realtime delivery.
+Responsibilities:
+	•	Push suggestions
+	•	Push memory updates
+	•	Push alerts
+TODO
+	•	Define websocket contracts
+	•	Define connection strategy
+	•	Define reconnection strategy
+
+Storage Architecture
+PostgreSQL
+Stores:
+	•	Tenants
+	•	Organizations
+	•	Users
+	•	Competitors
+	•	Battlecards
+	•	Products
+	•	Calls
+TODO
+	•	Design schema
+
+Redis
+Stores:
+	•	Active call memory
+	•	Lane outputs
+	•	Temporary state
+TODO
+	•	Design schema
+
+Qdrant
+Stores:
+	•	Product docs
+	•	Pricing docs
+	•	Security docs
+	•	FAQs
+	•	Training material
+TODO
+	•	Design collections
+
+Multi-Tenant Architecture
+Requirements:
+Every object belongs to a tenant.
+Postgres:
+tenant_id
+Redis:
+tenant_id:call_id
+NATS:
+tenant..call.
+TODO
+	•	Define tenant isolation strategy
+
+Security Architecture
+Default Mode:
+Zero Retention
+Audio deleted after processing.
+Future Modes:
+	•	Transcript retention
+	•	Full retention
+Principles:
+	•	Encryption at rest
+	•	Encryption in transit
+	•	Customer data not used for training
+TODO
+	•	Retention design
+	•	PII redaction design
+	•	RBAC design
+	•	Audit logging design
+
+Architecture Diagrams
+TODO
+	•	System architecture diagram
+	•	Sequence diagrams
+	•	Event flow diagram
+	•	Memory flow diagram
+	•	NATS flow diagram
+	•	Deployment architecture diagram
+
+Current Architecture Priorities
+Priority 1
+	•	Event Detector Specification v1
+Priority 2
+	•	Transcript Aggregator Design
+Priority 3
+	•	Memory Lane Schema
+Priority 4
+	•	Suggestion Schema
+Priority 5
+	•	NATS Architecture
+Priority 6
+	•	Service Boundary Definition
+These six items should be completed before implementation begins.
+
