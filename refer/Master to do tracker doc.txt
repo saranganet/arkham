@@ -1,6 +1,6 @@
 AI Sales Copilot - Master Product Roadmap & SDLC Tracker
 Current Phase:
-🟡 System Architecture & Design
+🟡 Phase 1.5 - Prototype Build (Backend completed, awaiting Premium UI)
 
 Phase 0 - Market Validation
 Goal:
@@ -104,15 +104,22 @@ Tasks:
 	•	CI/CD design
 	•	Monitoring plan
 
-Phase 5 - MVP Build
+Phase 1.5 - Prototype Build (CURRENT PHASE)
+Status:
+🟡 In Progress (Backend Done, Frontend UI Next)
+Tasks:
+	•	🟢 Simple STT Proxy & WebSocket
+	•	🟢 Transcript Aggregator
+	•	🟢 Direct LLM Integration (Gemini 2.5 Flash)
+	•	🟢 Legacy SonicScribe Test Harness UI
+	•	⚪ Premium Dynamic Frontend UI (React/Vanilla CSS)
+
+Phase 5 - MVP Build (Future Full Architecture)
 Status:
 ⚪ Not Started
 Tasks:
 	•	Chrome Extension
-	•	WebSocket
 	•	Exotel Integration
-	•	STT Integration
-	•	Transcript Aggregator
 	•	Event Detector
 	•	Reflex Lane
 	•	Memory Lane

@@ -178,7 +178,7 @@ function connectProxyWebSocket() {
   updateStatus(statusServer, "dot-active", "Server: Connecting");
   
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host || "localhost:3000";
+  const host = "localhost:3000";
   
   // Read current config parameters
   const model = selectModel.value;

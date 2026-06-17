@@ -1,4 +1,12 @@
 AI Sales Copilot - System Design & Architecture Document
+
+*** CURRENT PROTOTYPE DEVIATION ***
+Note: To validate the product quickly, we are currently running a simplified prototype architecture. 
+Instead of the full Event Detector -> NATS -> Lanes pipeline, the current flow is:
+Exotel/Mic -> STT Proxy -> Transcript Aggregator -> Gemini 2.5 Flash -> WebSocket -> UI
+This allows us to perfect the prompt engineering (PAS/EVC frameworks) and the premium UI before building the complex distributed backend.
+***********************************
+
 Current Status:
 	•	Streaming STT Design
 	•	Transcript Aggregator Design
