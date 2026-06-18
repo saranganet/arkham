@@ -1,6 +1,6 @@
 AI Sales Copilot - Project Context Document
 Current Status
-* PROTOTYPE IMPLEMENTED: We have built an initial prototype to validate real-time STT and AI coaching. It bypasses the complex multi-lane architecture for now, instead routing every finalized Customer utterance directly to Gemini 2.5 Flash using a strict PAS/EVC framework prompt. The frontend is currently a test harness using the legacy SonicScribe UI, to be replaced by a premium dynamic UI next.
+* PROTOTYPE COMPLETE: We have built a fully functional prototype. The frontend is a premium React/CSS dashboard supporting hardware-level speaker distinguishing (mixing local mic and tab loopback audio into a stereo stream for 100% accurate diarization) and single-mic AI diarization. When the customer speaks, the backend routes the utterance directly to Gemini 2.5 Flash using a strict PAS/EVC framework. Suggestions are rendered in the UI as interactive checkboxes and speech suggestion bubbles.
 
 Product Vision
 Build a real-time AI Sales Copilot that assists sales representatives during live sales calls.

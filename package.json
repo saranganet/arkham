@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "stt:start": "npm start --workspace=services/stt-proxy",
-    "stt:dev": "npm run dev --workspace=services/stt-proxy"
+    "stt:dev": "npm run dev --workspace=services/stt-proxy",
+    "ui:dev": "npm run dev --workspace=packages/ui"
   }
 }

@@ -16,12 +16,14 @@ export class TranscriptAggregator extends EventEmitter {
     const alternative = data.channel.alternatives[0];
     const words = alternative.words || [];
     const isSpeechFinal = data.speech_final === true;
+    
+    const channelIndex = data.channel_index ? data.channel_index[0] : null;
 
     // Track which speakers added words during this specific chunk
     const activeSpeakersInChunk = new Set();
 
     for (const wordObj of words) {
-      const speaker = wordObj.speaker !== undefined ? wordObj.speaker : 0;
+      const speaker = channelIndex !== null ? channelIndex : (wordObj.speaker !== undefined ? wordObj.speaker : 0);
       activeSpeakersInChunk.add(speaker);
       
       let active = this.activeUtterances.get(speaker);

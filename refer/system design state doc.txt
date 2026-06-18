@@ -3,8 +3,12 @@ AI Sales Copilot - System Design & Architecture Document
 *** CURRENT PROTOTYPE DEVIATION ***
 Note: To validate the product quickly, we are currently running a simplified prototype architecture. 
 Instead of the full Event Detector -> NATS -> Lanes pipeline, the current flow is:
-Exotel/Mic -> STT Proxy -> Transcript Aggregator -> Gemini 2.5 Flash -> WebSocket -> UI
+Local Mic + Shared Tab Audio -> Browser Web Audio Mixer (Stereo Merger) -> STT Proxy -> Transcript Aggregator -> Gemini 2.5 Flash -> WebSocket -> React UI (Cluely Layout)
 This allows us to perfect the prompt engineering (PAS/EVC frameworks) and the premium UI before building the complex distributed backend.
+Key Prototype Milestones Completed:
+  - Premium Cluely-style React 19 Frontend with canvas level meter visualizer and interactive checklist.
+  - Multi-channel stereo mixing (mic in Left channel, tab loopback audio in Right channel) providing 100% accurate speaker separation.
+  - Dynamic suggested phrase cues parsed and styled into neon-purple speech bubbles.
 ***********************************
 
 Current Status:

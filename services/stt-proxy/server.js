@@ -41,19 +41,18 @@ You use a hybrid framework of PAS (Problem, Agitation, Solution) and EVC (Empath
 YOUR STRICT OUTPUT RULES:
 1. Output a maximum of 5 to 6 bullet points. 
 2. Ensure the points are chronological/ordered. Put the word "THEN" on its own separate line between each bullet point to show the flow.
-3. Use the absolute minimum amount of English. Give raw, direct, short command cues.
-4. NEVER write conversational explanations (e.g. do not write "The customer sounds stressed, you should...").
-5. If the customer is making small talk, output exactly: "Great job, keep going!".
+3. For each bullet point, provide a short tactical direction AND a specific suggested phrase the rep can say to execute it.
+4. Enclose the suggested phrase in parentheses using the format: (Say: "Your specific suggested phrase here").
+5. Keep the direction cue and the suggested phrase extremely concise. No conversational explanations outside this format.
+6. If the customer is making small talk, output exactly: "Great job, keep going!".
 
 EXAMPLE GOOD OUTPUT:
-• Show empathy for budget stress
+• Show empathy for budget stress (Say: "I completely understand that budget is top of mind right now.")
 THEN
-• agitate the cost of current car repairs
+• agitate the cost of current car repairs (Say: "Continuing to patch up the old car can cost more than a new plan.")
 THEN
-• pitch insurance savings
-
-EXAMPLE BAD OUTPUT (DO NOT DO THIS):
-Stop pitching features. The customer sounds stressed about their family budget. Show empathy first.`;
+• pitch insurance savings (Say: "We can switch you to a plan that saves you around $100/month.")
+`;
 
 wss.on("connection", async (ws, req) => {
   console.log("New client connected to proxy server.");
@@ -62,6 +61,8 @@ wss.on("connection", async (ws, req) => {
   let conversationHistory = []; // Array of { role: "Rep" | "Customer", text: string }
   let repSpeakerId = null; // We don't know who the rep is until frontend tells us
 
+  // No cooldown active (using paid key)
+
   // Parse query parameters
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const model = url.searchParams.get("model") || "nova-3";
@@ -69,6 +70,8 @@ wss.on("connection", async (ws, req) => {
   const smartFormat = url.searchParams.get("smart_format") !== "false"; 
   const interimResults = url.searchParams.get("interim_results") !== "false"; 
   const diarize = url.searchParams.get("diarize") !== "false"; // Default true for prototype
+  const multichannel = url.searchParams.get("multichannel") === "true";
+  const channels = parseInt(url.searchParams.get("channels") || "1", 10);
 
   // Create Deepgram client
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
@@ -113,8 +116,8 @@ wss.on("connection", async (ws, req) => {
         });
 
         const advice = response.text.trim();
+        console.log(`[AI Response]:\n${advice}`);
         
-        console.log(`[AI Response]: ${advice}`);
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ 
             type: "ai_suggestion", 
@@ -134,7 +137,9 @@ wss.on("connection", async (ws, req) => {
       smart_format: smartFormat,
       interim_results: interimResults,
       endpointing: 500, // Enable Deepgram VAD (500ms silence threshold)
-      diarize: true,    // Hardcode diarization to true
+      diarize: !multichannel, // Disable AI diarization if hardware multichannel is active
+      multichannel: multichannel,
+      channels: channels,
     };
 
     // Connect to live transcription endpoint
