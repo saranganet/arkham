@@ -248,7 +248,7 @@ export default function App() {
     setStatus(prev => ({ ...prev, server: 'connecting' }));
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.port === '5173' ? 'localhost:3001' : window.location.host;
+    const host = window.location.port === '5173' ? 'localhost:3000' : window.location.host;
     
     // Determine connection query params
     const isMultichannel = diarizationMode === 'multichannel';
@@ -302,8 +302,8 @@ export default function App() {
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket client error:', err);
-      setErrorMessage('WebSocket connection failed. Ensure backend server is running on port 3001.');
+      console.error('WebSocket connection error:', err);
+      setErrorMessage('WebSocket connection failed. Ensure backend server is running on port 3000.');
       stopRecordingSession();
     };
 
@@ -462,6 +462,28 @@ export default function App() {
     }));
   };
 
+  const downloadTextFile = (content, filename) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTranscript = () => {
+    const lines = utterances.map(u => `[${formatTime(u.start)}] Speaker ${u.speaker}: ${u.text}`);
+    downloadTextFile(lines.join('\n'), 'transcript_log.txt');
+  };
+
+  const handleDownloadSuggestions = () => {
+    const lines = suggestions.map((s, i) => `[AI Suggestion ${i+1}]\n${s.rawText}\n`);
+    downloadTextFile(lines.join('\n'), 'ai_suggestions_log.txt');
+  };
+
   // Helper formats
   const formatTime = (timeInSecs) => {
     if (typeof timeInSecs !== 'number') return '0:00';
@@ -528,6 +550,7 @@ export default function App() {
               >
                 <option value="en-US">English (US)</option>
                 <option value="en-GB">English (UK)</option>
+                <option value="multi">Multilingual (Auto Detect)</option>
                 <option value="es">Spanish</option>
                 <option value="fr">French</option>
                 <option value="de">German</option>
@@ -605,12 +628,15 @@ export default function App() {
 
         {/* Center: Live Transcript Stream Feed */}
         <main className="transcript-panel">
-          <div className="panel-header">
-            <h2>Live Conversation Feed</h2>
-            <div className="role-legend">
-              <span className="legend-rep">Rep (Right)</span>
-              <span className="legend-cust">Customer (Left)</span>
+          <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div>
+              <h2>Live Conversation Feed</h2>
+              <div className="role-legend">
+                <span className="legend-rep">Rep (Right)</span>
+                <span className="legend-cust">Customer (Left)</span>
+              </div>
             </div>
+            <button className="btn-secondary" onClick={handleDownloadTranscript} style={{ height: 'fit-content', alignSelf: 'center', padding: '6px 12px', fontSize: '12px' }}>⬇ Download Log</button>
           </div>
 
           <div className="transcript-feed-scroll">
@@ -624,7 +650,7 @@ export default function App() {
 
             {utterances.map((utt) => {
               const isRep = repSpeakerId !== null ? utt.speaker === repSpeakerId : false;
-              const speakerName = isRep ? 'You (Rep)' : `Speaker ${utt.speaker}`;
+              const speakerName = isRep ? 'You (Rep)' : 'Customer';
               
               return (
                 <div 
@@ -675,9 +701,12 @@ export default function App() {
 
         {/* Right Side: Cluely Sales Copilot HUD */}
         <section className="copilot-hud-panel">
-          <div className="panel-header">
-            <h2>Sales Copilot HUD</h2>
-            <span className="hud-subtitle">PAS/EVC Tactical Guidance</span>
+          <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div>
+              <h2>Sales Copilot HUD</h2>
+              <span className="hud-subtitle">PAS/EVC Tactical Guidance</span>
+            </div>
+            <button className="btn-secondary" onClick={handleDownloadSuggestions} style={{ height: 'fit-content', alignSelf: 'center', padding: '6px 12px', fontSize: '12px' }}>⬇ Download Log</button>
           </div>
 
           <div className="hud-suggestions-scroll">

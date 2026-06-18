@@ -81,19 +81,10 @@ wss.on("connection", async (ws, req) => {
   const aggregator = new TranscriptAggregator({ watchdogTimeout: 2000 });
   
   aggregator.on('utterance', async (utt) => {
-    // Determine the role
-    let role = "Unknown";
-    if (repSpeakerId !== null) {
-      role = utt.speaker === repSpeakerId ? "Rep" : "Customer";
-    } else {
-      // Fallback: If not set, assume speaker 0 is Rep
-      role = utt.speaker === 0 ? "Rep" : "Customer";
-    }
-
-    // Append to conversation history
-    conversationHistory.push({ role, text: utt.text, speaker: utt.speaker });
+    // Append to conversation history (just store speaker ID, we will map roles dynamically)
+    conversationHistory.push({ speaker: utt.speaker, text: utt.text });
     
-    // Keep sliding window of last 10 utterances to not blow up context token limits
+    // Keep sliding window of last 10 utterances
     if (conversationHistory.length > 10) {
       conversationHistory.shift();
     }
@@ -102,11 +93,28 @@ wss.on("connection", async (ws, req) => {
       ws.send(JSON.stringify({ type: "finalized_utterance", data: utt }));
     }
 
+    // Determine current role to see if we should trigger AI
+    let currentRole = "Unknown";
+    if (repSpeakerId !== null) {
+      currentRole = utt.speaker === repSpeakerId ? "Rep" : "Customer";
+    } else {
+      currentRole = utt.speaker === 0 ? "Rep" : "Customer";
+    }
+
     // TRIGGER AI IF IT IS THE CUSTOMER SPEAKING
-    if (role === "Customer" && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "placeholder") {
+    if (currentRole === "Customer" && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "placeholder") {
       try {
-        // Format the history for the prompt
-        const formattedHistory = conversationHistory.map(h => `[${h.role}]: ${h.text}`).join("\n");
+        // Format the history dynamically so retrospective role changes apply to the whole context
+        const formattedHistory = conversationHistory.map(h => {
+          let r = "Unknown";
+          if (repSpeakerId !== null) {
+            r = h.speaker === repSpeakerId ? "Rep" : "Customer";
+          } else {
+            r = h.speaker === 0 ? "Rep" : "Customer";
+          }
+          return `[${r}]: ${h.text}`;
+        }).join("\n");
+        
         const fullPrompt = `${SALES_COACH_SYSTEM_PROMPT}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
 
         console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
