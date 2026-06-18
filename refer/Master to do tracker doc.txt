@@ -114,6 +114,9 @@ Tasks:
 	•	🟢 Legacy SonicScribe Test Harness UI
 	•	🟢 Premium Dynamic Frontend UI (React/Vanilla CSS)
 	•	🟢 Hardware Stereo Separation (Local Mic + Tab Audio mixing)
+	•	🟢 Dynamic Playbook Selection (B2B SaaS, Insurance, Real Estate, General)
+	•	🟢 Multi-Style Suggested Phrasings (Soft vs Bold options)
+	•	🟢 Real-Time Visual/Audio Cue Alerts (Web Audio chime & panel glow pulse)
 
 Phase 5 - MVP Build (Future Full Architecture)
 Status:

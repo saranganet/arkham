@@ -34,25 +34,30 @@ if (!process.env.GEMINI_API_KEY) {
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "placeholder" });
 
-// System Prompt Guidelines for Gemini
-const SALES_COACH_SYSTEM_PROMPT = `You are an elite B2C AI Sales Copilot listening to a live sales call.
-You use a hybrid framework of PAS (Problem, Agitation, Solution) and EVC (Empathy, Value, Close).
-
-YOUR STRICT OUTPUT RULES:
-1. Output a maximum of 5 to 6 bullet points. 
-2. Ensure the points are chronological/ordered. Put the word "THEN" on its own separate line between each bullet point to show the flow.
-3. For each bullet point, provide a short tactical direction AND a specific suggested phrase the rep can say to execute it.
-4. Enclose the suggested phrase in parentheses using the format: (Say: "Your specific suggested phrase here").
-5. Keep the direction cue and the suggested phrase extremely concise. No conversational explanations outside this format.
-6. If the customer is making small talk, output exactly: "Great job, keep going!".
-
-EXAMPLE GOOD OUTPUT:
-• Show empathy for budget stress (Say: "I completely understand that budget is top of mind right now.")
-THEN
-• agitate the cost of current car repairs (Say: "Continuing to patch up the old car can cost more than a new plan.")
-THEN
-• pitch insurance savings (Say: "We can switch you to a plan that saves you around $100/month.")
-`;
+// Playbook configurations for dynamic prompt generation
+const PLAYBOOKS = {
+  general: {
+    name: "General Sales Coach",
+    guidelines: "You use a hybrid framework of PAS (Problem, Agitation, Solution) and EVC (Empathy, Value, Close)."
+  },
+  saas: {
+    name: "B2B SaaS & Tech",
+    guidelines: `Focus on B2B SaaS objections (integration issues, data security/privacy, implementation timeline, ROI proof, stakeholder alignment). 
+Use techniques like Value Selling, objection loops (Acknowledge, Clarify, Validate, Pivot). 
+Focus on explaining ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.`
+  },
+  insurance: {
+    name: "B2C Insurance Sales",
+    guidelines: `Focus on B2C insurance objections (premium rates, switching friction, loyalty to current carriers, trust).
+Use techniques like highlighting the cost of being underinsured, bundling discounts (auto + home + life), and effortless switching assistance.
+Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability.`
+  },
+  realestate: {
+    name: "Real Estate & Property",
+    guidelines: `Focus on real estate objections (market volatility, interest rate anxiety, neighborhood fit, inspection findings, long-term appreciation).
+Highlight the value of building equity, localized neighborhood growth trends, and strategies like 'marry the house, refinance the rate'.`
+  }
+};
 
 wss.on("connection", async (ws, req) => {
   console.log("New client connected to proxy server.");
@@ -72,6 +77,28 @@ wss.on("connection", async (ws, req) => {
   const diarize = url.searchParams.get("diarize") !== "false"; // Default true for prototype
   const multichannel = url.searchParams.get("multichannel") === "true";
   const channels = parseInt(url.searchParams.get("channels") || "1", 10);
+  const playbook = url.searchParams.get("playbook") || "saas";
+
+  // Build the dynamic prompt based on the chosen playbook
+  const chosenPlaybook = PLAYBOOKS[playbook] || PLAYBOOKS.general;
+  const salesCoachSystemPrompt = `You are an elite AI Sales Copilot listening to a live sales call, configured for the playbook: "${chosenPlaybook.name}".
+${chosenPlaybook.guidelines}
+
+YOUR STRICT OUTPUT RULES:
+1. Output a maximum of 5 to 6 bullet points. 
+2. Ensure the points are chronological/ordered. Put the word "THEN" on its own separate line between each bullet point to show the flow.
+3. For each bullet point, provide a short tactical direction AND two suggested response phrases: one "Soft" (consultative, empathy-first) and one "Bold" (direct, assertive/objection qualification).
+4. Enclose both suggested phrases in parentheses at the end of the line using the exact format: (Soft: "your consultative phrase" | Bold: "your direct phrase").
+5. Keep the direction cue and the suggested phrases extremely concise. Do not include any other explanations.
+6. If the customer is making small talk, output exactly: "Great job, keep going!".
+
+EXAMPLE GOOD OUTPUT:
+• Show empathy for budget stress (Soft: "I completely understand that budget is top of mind right now." | Bold: "If budget wasn't an issue, would this be the right fit for you?")
+THEN
+• agitate the cost of current car repairs (Soft: "Continuing to repair the old car can often cost more over time." | Bold: "How much did you spend on repairs last month alone?")
+THEN
+• pitch savings/value (Soft: "We can switch you to a plan that saves you around $100/month." | Bold: "Let's lock in the $100/month savings today so you stop overpaying.")
+`;
 
   // Create Deepgram client
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
@@ -115,7 +142,7 @@ wss.on("connection", async (ws, req) => {
           return `[${r}]: ${h.text}`;
         }).join("\n");
         
-        const fullPrompt = `${SALES_COACH_SYSTEM_PROMPT}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
+        const fullPrompt = `${salesCoachSystemPrompt}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
 
         console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
         const response = await ai.models.generateContent({

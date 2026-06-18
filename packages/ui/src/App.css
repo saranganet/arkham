@@ -710,6 +710,29 @@ body {
   overflow: hidden;
 }
 
+.copilot-hud-panel.suggestions-flash-active {
+  animation: panelGlowPulse 1.5s ease-in-out;
+}
+
+@keyframes panelGlowPulse {
+  0% {
+    box-shadow: inset 0 0 0px 0px rgba(168, 85, 247, 0);
+    border-left-color: var(--border-light);
+  }
+  25% {
+    box-shadow: inset 0 0 35px 2px rgba(168, 85, 247, 0.2);
+    border-left-color: var(--accent-purple);
+  }
+  75% {
+    box-shadow: inset 0 0 35px 2px rgba(168, 85, 247, 0.2);
+    border-left-color: var(--accent-purple);
+  }
+  100% {
+    box-shadow: inset 0 0 0px 0px rgba(168, 85, 247, 0);
+    border-left-color: var(--border-light);
+  }
+}
+
 .hud-subtitle {
   font-size: 10px;
   font-weight: 700;
@@ -1007,5 +1030,63 @@ body {
 
 .step-completed .step-phrase-quote {
   color: var(--accent-emerald);
+}
+
+/* Multi-Style suggested phrasing bubbles */
+.step-multiphrase-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.multiphrase-bubble {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  transition: all 0.2s ease-in-out;
+}
+
+.multiphrase-bubble.soft-bubble {
+  background: rgba(16, 185, 129, 0.05); /* Emerald transparency */
+  border-color: rgba(16, 185, 129, 0.15);
+  color: #a7f3d0; /* Emerald 200 */
+}
+
+.multiphrase-bubble.bold-bubble {
+  background: rgba(168, 85, 247, 0.05); /* Purple transparency */
+  border-color: rgba(168, 85, 247, 0.15);
+  color: #e9d5ff; /* Purple 200 */
+}
+
+.phrase-badge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.soft-badge {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399; /* Emerald 400 */
+}
+
+.bold-badge {
+  background: rgba(168, 85, 247, 0.25);
+  color: #c084fc; /* Purple 400 */
+}
+
+.step-completed .multiphrase-bubble {
+  text-decoration: line-through;
+  opacity: 0.4;
+  box-shadow: none;
 }
 

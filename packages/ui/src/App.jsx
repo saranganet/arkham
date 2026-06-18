@@ -25,10 +25,13 @@ export default function App() {
 
   // AI Suggestion States
   const [suggestions, setSuggestions] = useState([]);
+  const [playbook, setPlaybook] = useState('saas'); // 'saas', 'insurance', 'realestate', 'general'
+  const [flashSuggestion, setFlashSuggestion] = useState(false);
 
   // Refs for Web Audio API & WebSocket
   const socketRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const flashTimeoutRef = useRef(null);
   const audioStreamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -57,6 +60,7 @@ export default function App() {
   useEffect(() => {
     return () => {
       stopRecordingSession();
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     };
   }, []);
 
@@ -244,6 +248,31 @@ export default function App() {
     setInterimText('');
   };
 
+  const playSuggestionChime = () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz chime
+      
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.05); // Volume up in 50ms
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6); // Fade out in 550ms
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+    } catch (e) {
+      console.warn("Failed to play suggestion chime:", e);
+    }
+  };
+
   const connectWebSocket = () => {
     setStatus(prev => ({ ...prev, server: 'connecting' }));
     
@@ -252,7 +281,7 @@ export default function App() {
     
     // Determine connection query params
     const isMultichannel = diarizationMode === 'multichannel';
-    const wsUrl = `${protocol}//${host}?model=${model}&language=${language}&smart_format=${smartFormat}&interim_results=${interimResults}&diarize=${!isMultichannel}&multichannel=${isMultichannel}&channels=${isMultichannel ? 2 : 1}`;
+    const wsUrl = `${protocol}//${host}?model=${model}&language=${language}&smart_format=${smartFormat}&interim_results=${interimResults}&diarize=${!isMultichannel}&multichannel=${isMultichannel}&channels=${isMultichannel ? 2 : 1}&playbook=${playbook}`;
     
     const ws = new WebSocket(wsUrl);
     socketRef.current = ws;
@@ -288,6 +317,14 @@ export default function App() {
               timestamp: payload.data.timestamp || Date.now()
             };
             setSuggestions(prev => [...prev, suggestionObj]);
+            
+            // Option 4: Trigger visual flash and audio chime
+            setFlashSuggestion(true);
+            playSuggestionChime();
+            if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+            flashTimeoutRef.current = setTimeout(() => {
+              setFlashSuggestion(false);
+            }, 3000);
             break;
           case 'error':
             setErrorMessage(payload.message);
@@ -593,6 +630,20 @@ export default function App() {
                 <option value="ai">Single-Mic AI Diarize</option>
               </select>
             </div>
+
+            <div className="input-group" style={{ marginTop: '16px' }}>
+              <label>Sales Playbook</label>
+              <select 
+                value={playbook} 
+                onChange={(e) => setPlaybook(e.target.value)}
+                disabled={isRecording}
+              >
+                <option value="saas">B2B SaaS & Tech</option>
+                <option value="insurance">B2C Insurance Sales</option>
+                <option value="realestate">Real Estate & Property</option>
+                <option value="general">General B2C/B2B Sales</option>
+              </select>
+            </div>
           </div>
 
           {/* Canvas Wave Visualizer & Recording Controls */}
@@ -700,7 +751,7 @@ export default function App() {
         </main>
 
         {/* Right Side: Cluely Sales Copilot HUD */}
-        <section className="copilot-hud-panel">
+        <section className={`copilot-hud-panel ${flashSuggestion ? 'suggestions-flash-active' : ''}`}>
           <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
             <div>
               <h2>Sales Copilot HUD</h2>
@@ -739,12 +790,26 @@ export default function App() {
                       {sug.steps.map((step, idx) => {
                         const isChecked = sug.checkedSteps.has(idx);
                         
-                        // Check if the step includes a suggested phrase (e.g. Say: "...")
-                        const phraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || 
-                                            step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
+                        // Check for multi-style phrasings (Soft vs Bold)
+                        const multiPhraseMatch = step.match(/^(.*?)\s*\(Soft:\s*["']?(.*?)["']?\s*\|\s*Bold:\s*["']?(.*?)["']?\)$/i);
                         
-                        const directionText = phraseMatch ? phraseMatch[1] : step;
-                        const suggestedPhrase = phraseMatch ? phraseMatch[2] : null;
+                        let directionText = step;
+                        let suggestedPhrase = null;
+                        let softPhrase = null;
+                        let boldPhrase = null;
+
+                        if (multiPhraseMatch) {
+                          directionText = multiPhraseMatch[1];
+                          softPhrase = multiPhraseMatch[2];
+                          boldPhrase = multiPhraseMatch[3];
+                        } else {
+                          const singlePhraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || 
+                                                    step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
+                          if (singlePhraseMatch) {
+                            directionText = singlePhraseMatch[1];
+                            suggestedPhrase = singlePhraseMatch[2];
+                          }
+                        }
 
                         return (
                           <div 
@@ -767,6 +832,22 @@ export default function App() {
                                   <span className="step-phrase-quote">“</span>
                                   {suggestedPhrase}
                                   <span className="step-phrase-quote">”</span>
+                                </div>
+                              )}
+                              {softPhrase && boldPhrase && (
+                                <div className="step-multiphrase-container">
+                                  <div className="multiphrase-bubble soft-bubble">
+                                    <span className="phrase-badge soft-badge">Soft</span>
+                                    <span className="step-phrase-quote">“</span>
+                                    {softPhrase}
+                                    <span className="step-phrase-quote">”</span>
+                                  </div>
+                                  <div className="multiphrase-bubble bold-bubble">
+                                    <span className="phrase-badge bold-badge">Bold</span>
+                                    <span className="step-phrase-quote">“</span>
+                                    {boldPhrase}
+                                    <span className="step-phrase-quote">”</span>
+                                  </div>
                                 </div>
                               )}
                             </div>
