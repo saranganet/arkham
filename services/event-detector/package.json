@@ -1,0 +1,14 @@
+{
+  "name": "event-detector",
+  "version": "1.0.0",
+  "description": "Analyzes sales call utterances for intents and objections using rules and local 8B models",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test-detector.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}

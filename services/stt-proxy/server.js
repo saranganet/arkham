@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { TranscriptAggregator } from "../transcript-aggregator/Aggregator.js";
+import { EventDetector } from "../event-detector/detector.js";
 
 // Load environment variables
 dotenv.config();
@@ -56,8 +57,64 @@ Acknowledge rate concerns and redirect to custom coverage, deductibles adjustmen
     name: "Real Estate & Property",
     guidelines: `Focus on real estate objections (market volatility, interest rate anxiety, neighborhood fit, inspection findings, long-term appreciation).
 Highlight the value of building equity, localized neighborhood growth trends, and strategies like 'marry the house, refinance the rate'.`
+  },
+  newtonschool: {
+    name: "Newton School Bangalore Admission Coach",
+    guidelines: `You are the admission coach for Newton School Bangalore. Assist the Rep in responding to candidate objections using the official training doc.
+    
+FACTUAL SALES MANUAL CUES:
+- Base Pitch: Placement-oriented DS and AI program with lifetime placement support. Excel, SQL, Python, ML. Potential salary: 25 LPA+. MNCs: Amazon, Flipkart, Meesho, IBM. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). Unlimited referrals. MWF 9 pm - 11 pm live classes.
+- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February). 
+- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School).
+- Competitor Objections (Simplilearn/Intellipaat/Cheaper 60k course): Highlight instructor quality (Google/Amazon experts), lifetime placement support (Subhadip Das case), and company-specific grooming sessions before interview rounds. If competitor is expensive, compare USPs directly to show value. If competitor is aligned, connect with similar alum for trust.
+- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).
+- Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories.
+
+STRICT GENERATION RULE:
+Do not write long text blocks. Output concise pointers, exact numbers (e.g., 1.85L, 6500/mo, 25 LPA), and concrete student stories. Reps need facts and triggers to construct their own answers, not scripts.`
   }
 };
+
+const REFLEX_SUGGESTIONS = {
+  COMPETITOR: {
+    hubspot: '• Pitch HubSpot battlecard pointers (Soft: "HubSpot is very user-friendly, but custom object limits can block sales scaling." | Bold: "HubSpot limits API calls and custom objects in their standard plans. Let\'s verify your technical requirements.")',
+    salesforce: '• Handle Salesforce comparison (Soft: "Salesforce is extremely powerful, but it often requires a dedicated admin to manage." | Bold: "Salesforce implementation will take 6 months and cost double. We can go live in under 2 weeks.")',
+    zoho: '• Address Zoho fit (Soft: "Zoho is highly custom, but has complex setup friction." | Bold: "Let\'s compare Zoho\'s custom capability against our out-of-the-box speed.")'
+  },
+  OBJ_BUDGET: {
+    general: '• Handle price objections via ROI (Soft: "I hear you on budget. Let\'s outline the ROI to see if it covers the platform cost." | Bold: "If cost wasn\'t a blocker, would you sign today? Let\'s qualify the priority first.")',
+    realestate: '• Address interest rate anxiety (Soft: "I understand rates are higher right now, but you can always refinance when they drop." | Bold: "Marry the house and refinance the rate later. Let\'s secure the property price today.")'
+  },
+  OBJ_TIMELINE: '• Guarantee rapid onboarding (Soft: "We handle all migration and onboarding in less than 2 weeks." | Bold: "Let\'s commit to a 2-week launch timeline so your reps start seeing value this quarter.")',
+  SIGNAL_BUY: '• Lock in next steps and trial (Soft: "Would you like me to share our security SOC2 compliance package?" | Bold: "Let\'s book a 15-minute setup call next Tuesday to configure your workspace sandbox.")'
+};
+
+function getReflexSuggestion(intents, playbook) {
+  const suggestions = [];
+  
+  for (const intent of intents) {
+    if (intent.cat === "COMPETITOR" && intent.entity) {
+      const comp = intent.entity.toLowerCase();
+      if (comp.includes("hubspot")) {
+        suggestions.push(REFLEX_SUGGESTIONS.COMPETITOR.hubspot);
+      } else if (comp.includes("salesforce")) {
+        suggestions.push(REFLEX_SUGGESTIONS.COMPETITOR.salesforce);
+      } else if (comp.includes("zoho")) {
+        suggestions.push(REFLEX_SUGGESTIONS.COMPETITOR.zoho);
+      }
+    } else if (intent.cat === "OBJ_BUDGET") {
+      const option = REFLEX_SUGGESTIONS.OBJ_BUDGET[playbook] || REFLEX_SUGGESTIONS.OBJ_BUDGET.general;
+      suggestions.push(option);
+    } else if (intent.cat === "OBJ_TIMELINE") {
+      suggestions.push(REFLEX_SUGGESTIONS.OBJ_TIMELINE);
+    } else if (intent.cat === "SIGNAL_BUY") {
+      suggestions.push(REFLEX_SUGGESTIONS.SIGNAL_BUY);
+    }
+  }
+  
+  if (suggestions.length === 0) return null;
+  return suggestions.join("\nTHEN\n");
+}
 
 wss.on("connection", async (ws, req) => {
   console.log("New client connected to proxy server.");
@@ -85,19 +142,14 @@ wss.on("connection", async (ws, req) => {
 ${chosenPlaybook.guidelines}
 
 YOUR STRICT OUTPUT RULES:
-1. Output a maximum of 5 to 6 bullet points. 
-2. Ensure the points are chronological/ordered. Put the word "THEN" on its own separate line between each bullet point to show the flow.
-3. For each bullet point, provide a short tactical direction AND two suggested response phrases: one "Soft" (consultative, empathy-first) and one "Bold" (direct, assertive/objection qualification).
-4. Enclose both suggested phrases in parentheses at the end of the line using the exact format: (Soft: "your consultative phrase" | Bold: "your direct phrase").
-5. Keep the direction cue and the suggested phrases extremely concise. Do not include any other explanations.
-6. If the customer is making small talk or if no active negotiation tactic is needed, do NOT output any bullet points or phrases. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any markdown formatting, bullet points, numbers, or explanation.
+1. Output a maximum of 2 to 3 bullet points. Each bullet point must represent one clear tactical cue or answer helper.
+2. For each bullet point, provide a short tactical direction cue AND a single suggested response phrase in parentheses using the format: (Say: "your suggested response phrase"). Do NOT include "Soft" or "Bold" variations.
+3. Keep the direction cue and the suggested phrasing extremely concise. Do not include any other explanations or markdown headers.
+4. If the customer is making small talk, confirming details (like the school name "Newton School of Technology" or basic greetings), or if no active sales objection handling is needed, do NOT output any bullet points. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any formatting.
 
 EXAMPLE GOOD OUTPUT:
-• Show empathy for budget stress (Soft: "I completely understand that budget is top of mind right now." | Bold: "If budget wasn't an issue, would this be the right fit for you?")
-THEN
-• agitate the cost of current car repairs (Soft: "Continuing to repair the old car can often cost more over time." | Bold: "How much did you spend on repairs last month alone?")
-THEN
-• pitch savings/value (Soft: "We can switch you to a plan that saves you around $100/month." | Bold: "Let's lock in the $100/month savings today so you stop overpaying.")
+• Emphasize UGC degree recognition (Say: "Our B.Tech in CS & AI is fully UGC-accredited through our partnership with Rishihood University.")
+• Explain 36-month EMI options (Say: "We have flexible financing plans starting at just 6,500 rupees per month across 36 months.")
 `;
 
   // Create Deepgram client
@@ -135,8 +187,50 @@ THEN
       const groqApiKey = process.env.GROQ_API_KEY;
       const geminiApiKey = process.env.GEMINI_API_KEY;
 
-      if ((groqApiKey && groqApiKey !== "placeholder") || (geminiApiKey && geminiApiKey !== "placeholder")) {
-        try {
+      try {
+        // Run EventDetector
+        const detector = new EventDetector({
+          ollamaUrl: 'http://localhost:11434',
+          modelName: 'llama3.1:8b',
+          playbook: playbook,
+          fallbackToCloud: true,
+          groqApiKey,
+          geminiApiKey
+        });
+
+        console.log(`[EventDetector] Running on customer utterance: "${utt.text}"`);
+        const detectResult = await detector.detect(utt, conversationHistory, currentRole === "Customer");
+        console.log(`[EventDetector] Detected Intents:`, JSON.stringify(detectResult.intents));
+
+        // 1. GATEKEEPER CHECK: Early exit on NONE / no active intents
+        if (detectResult.intents.length === 0) {
+          console.log(`[EventDetector] Gatekeeper: early exit (0ms). Sending keep-going signal.`);
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ 
+              type: "ai_suggestion", 
+              data: { text: "Great job, keep going!", timestamp: Date.now() } 
+            }));
+          }
+          return;
+        }
+
+        // 2. REFLEX ROUTER CHECK: Instant pre-defined responses (Disabled per user request to keep reflex lane closed)
+        /*
+        const reflexAdvice = getReflexSuggestion(detectResult.intents, playbook);
+        if (reflexAdvice) {
+          console.log(`[EventDetector] Reflex route matched. Sending instant suggestions:`, reflexAdvice);
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ 
+              type: "ai_suggestion", 
+              data: { text: reflexAdvice, timestamp: Date.now() } 
+            }));
+          }
+          return; // Skip LLM call entirely
+        }
+        */
+
+        // 3. COGNITIVE ROUTER: Intent-focused suggestion generation
+        if ((groqApiKey && groqApiKey !== "placeholder") || (geminiApiKey && geminiApiKey !== "placeholder")) {
           // Format the history dynamically so retrospective role changes apply to the whole context
           const formattedHistory = conversationHistory.map(h => {
             const isRepSpeaker = repSpeakerId !== null 
@@ -145,41 +239,61 @@ THEN
             return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
           }).join("\n");
           
-          const fullPrompt = `${salesCoachSystemPrompt}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
+          const activeIntentCategories = detectResult.intents.map(i => `${i.cat}${i.entity ? ` (${i.entity})` : ''}`).join(", ");
+          
+          const fullPrompt = `${salesCoachSystemPrompt}
+          
+=== RECENT CONVERSATION ===
+${formattedHistory}
+
+[DETECTED CUSTOMER INTENTS]: ${activeIntentCategories}
+Based on the Customer's latest response and active intents, what is your tactical advice for the Rep?`;
 
           let advice = "";
 
           if (groqApiKey && groqApiKey !== "placeholder") {
-            console.log(`[AI Triggered] Sending context to Groq (Llama-3.1-8b-instant)...`);
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${groqApiKey}`
-              },
-              body: JSON.stringify({
-                model: "llama-3.1-8b-instant",
-                messages: [
-                  { role: "user", content: fullPrompt }
-                ],
-                temperature: 0.1
-              })
-            });
+            try {
+              console.log(`[AI Triggered] Sending context to Groq (Llama-3.1-8b-instant)...`);
+              const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${groqApiKey}`
+                },
+                body: JSON.stringify({
+                  model: "llama-3.1-8b-instant",
+                  messages: [
+                    { role: "user", content: fullPrompt }
+                  ],
+                  temperature: 0.1
+                })
+              });
 
-            if (!response.ok) {
-              const errText = await response.text();
-              throw new Error(`Groq API Error (${response.status}): ${errText}`);
+              if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Groq API Error (${response.status}): ${errText}`);
+              }
+
+              const data = await response.json();
+              advice = data.choices[0].message.content.trim();
+              console.log(`[AI Response] Successfully generated suggestions using Groq.`);
+            } catch (groqErr) {
+              console.warn(`[AI Triggered] Groq call failed. Falling back to Gemini. Error:`, groqErr.message);
             }
+          }
 
-            const data = await response.json();
-            advice = data.choices[0].message.content.trim();
-          } else {
-            console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: fullPrompt,
-            });
-            advice = response.text.trim();
+          if (!advice && geminiApiKey && geminiApiKey !== "placeholder") {
+            try {
+              console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
+              const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: fullPrompt,
+              });
+              advice = response.text.trim();
+              console.log(`[AI Response] Successfully generated suggestions using Gemini.`);
+            } catch (geminiErr) {
+              console.error(`[AI Triggered] Gemini fallback also failed:`, geminiErr.message);
+            }
           }
 
           console.log(`[AI Response]:\n${advice}`);
@@ -190,9 +304,9 @@ THEN
               data: { text: advice, timestamp: Date.now() } 
             }));
           }
-        } catch (err) {
-          console.error("AI Generation Error:", err);
         }
+      } catch (err) {
+        console.error("Pipeline Error:", err);
       }
     }
   });

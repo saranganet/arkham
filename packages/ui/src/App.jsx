@@ -44,7 +44,6 @@ export default function App() {
   // Copilot HUD States
   const [suggestions, setSuggestions] = useState(() => loadState('cluely_suggestions', []));
   const [focusQueue, setFocusQueue] = useState(() => loadState('cluely_focusQueue', []));
-  const [viewIndex, setViewIndex] = useState(() => loadState('cluely_viewIndex', 0));
   const [completedCardIds, setCompletedCardIds] = useState(() => new Set(loadState('cluely_completedCardIds', [])));
   const [embedder, setEmbedder] = useState(null);
   const [matchScore, setMatchScore] = useState(0); // For UI visualization
@@ -135,24 +134,42 @@ export default function App() {
   useEffect(() => { localStorage.setItem('cluely_utterances', JSON.stringify(utterances)); }, [utterances]);
   useEffect(() => { localStorage.setItem('cluely_suggestions', JSON.stringify(suggestions)); }, [suggestions]);
   useEffect(() => { localStorage.setItem('cluely_focusQueue', JSON.stringify(focusQueue)); }, [focusQueue]);
-  useEffect(() => { localStorage.setItem('cluely_viewIndex', JSON.stringify(viewIndex)); }, [viewIndex]);
   useEffect(() => { 
     localStorage.setItem('cluely_completedCardIds', JSON.stringify(Array.from(completedCardIds))); 
   }, [completedCardIds]);
 
-  // Cosine Similarity Helper
-  const cosineSimilarity = (vecA, vecB) => {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
+  // Jaccard similarity word overlap helper to prevent duplicate suggestions
+  const getWordOverlap = (str1, str2) => {
+    if (!str1 || !str2) return 0;
+    
+    const normalize = (s) => {
+      return s.toLowerCase()
+        .replace(/\b(lakhs|lakh|lac|l)\b/g, 'lakh')
+        .replace(/\b(rupees|rs|inr)\b/g, 'rupees')
+        .replace(/\b(percent|pc)\b/g, 'percent')
+        .replace(/\b(actually|just|our|but|with|the|after|before|right|and|thats|is|are|a|for|to|it|its|have|has|we|you|your|on|an)\b/g, '')
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '')
+        .trim();
+    };
+    
+    const clean1 = normalize(str1);
+    const clean2 = normalize(str2);
+    
+    const words1 = new Set(clean1.split(/\s+/).filter(w => w.length > 0));
+    const words2 = new Set(clean2.split(/\s+/).filter(w => w.length > 0));
+    
+    if (words1.size === 0 || words2.size === 0) return 0;
+    
+    let intersection = 0;
+    for (const w of words1) {
+      if (words2.has(w)) {
+        intersection++;
+      }
     }
-    if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    const union = words1.size + words2.size - intersection;
+    return intersection / union;
   };
+
 
   // Sync speaker ID to websocket when updated in UI
   useEffect(() => {
@@ -191,8 +208,6 @@ export default function App() {
 
         for (const { card, idx } of incompleteCards) {
           let phrasesToMatch = [];
-          if (card.softPhrase) phrasesToMatch.push(card.softPhrase);
-          if (card.boldPhrase) phrasesToMatch.push(card.boldPhrase);
           if (card.singlePhrase) phrasesToMatch.push(card.singlePhrase);
 
           if (phrasesToMatch.length === 0) continue;
@@ -220,23 +235,6 @@ export default function App() {
             newSet.add(bestMatch.card.id);
             return newSet;
           });
-
-          // Auto-scroll ONLY if the matched card is the one the user is currently looking at
-          if (bestMatch.idx === viewIndex) {
-            setAnimatingCardId(bestMatch.card.id);
-            setTimeout(() => {
-              setViewIndex(prev => {
-                let nextIdx = prev + 1;
-                const updatedCompleted = new Set(completedCardIdsRef.current);
-                updatedCompleted.add(bestMatch.card.id);
-                while (nextIdx < focusQueueRef.current.length && updatedCompleted.has(focusQueueRef.current[nextIdx].id)) {
-                  nextIdx++;
-                }
-                return nextIdx;
-              });
-              setAnimatingCardId(null);
-            }, 400); // Wait for CSS animation
-          }
           
           // Clear visual debug score after a moment
           setTimeout(() => setMatchScore(0), 3000);
@@ -247,7 +245,7 @@ export default function App() {
     };
 
     checkSemanticMatch();
-  }, [utterances, viewIndex, focusQueue, embedder, repSpeakerId, completedCardIds]);
+  }, [utterances, focusQueue, embedder, repSpeakerId, completedCardIds]);
 
 
 
@@ -277,7 +275,6 @@ export default function App() {
       setInterimText('');
       setSuggestions([]);
       setFocusQueue([]);
-      setViewIndex(0);
       setCompletedCardIds(new Set());
       setMatchScore(0);
       setErrorMessage('');
@@ -518,8 +515,6 @@ export default function App() {
                 return newSet;
               });
               
-              // Scroll past all current focusQueue cards
-              setViewIndex(focusQueueRef.current.length);
               break;
             }
 
@@ -540,14 +535,13 @@ export default function App() {
             const newSteps = rawSteps.filter(step => !isSmallTalkStep(step));
 
             if (newSteps.length === 0) {
-              // It is solely small talk - update the background status canvas and scroll past any existing cues
+              // It is solely small talk - update the background status canvas
               setBackgroundStatus("Great job, keep going!");
               setCompletedCardIds(prev => {
                 const newSet = new Set(prev);
                 focusQueueRef.current.forEach(card => newSet.add(card.id));
                 return newSet;
               });
-              setViewIndex(focusQueueRef.current.length);
               break;
             }
 
@@ -566,46 +560,56 @@ export default function App() {
             
             // Build new Focus Queue format
             const newFocusCards = newSteps.map(step => {
-              const multiPhraseMatch = step.match(/^(.*?)\s*\(Soft:\s*["']?(.*?)["']?\s*\|\s*Bold:\s*["']?(.*?)["']?\)$/i);
               let directionText = step;
-              let softPhrase = null;
-              let boldPhrase = null;
               let singlePhrase = null;
               
-              if (multiPhraseMatch) {
-                directionText = multiPhraseMatch[1].trim();
-                softPhrase = multiPhraseMatch[2].replace(/^["']|["']$/g, '').trim();
-                boldPhrase = multiPhraseMatch[3].replace(/^["']|["']$/g, '').trim();
+              const singlePhraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
+              if (singlePhraseMatch) {
+                directionText = singlePhraseMatch[1].trim();
+                singlePhrase = singlePhraseMatch[2].replace(/^["']|["']$/g, '').trim();
               } else {
-                const singlePhraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
-                if (singlePhraseMatch) {
-                  directionText = singlePhraseMatch[1].trim();
-                  singlePhrase = singlePhraseMatch[2].replace(/^["']|["']$/g, '').trim();
-                } else {
-                  // Fallback: use directionText as a singlePhrase to match
-                  singlePhrase = step.trim();
-                }
+                // Fallback: use directionText as a singlePhrase to match
+                singlePhrase = step.trim();
               }
 
               return {
                 id: Date.now() + Math.random().toString(36).substring(2),
                 directionText,
-                softPhrase,
-                boldPhrase,
                 singlePhrase,
                 originalText: step
               };
             });
             
-            setFocusQueue(prev => [...prev, ...newFocusCards]);
+            let addedCount = 0;
+            setFocusQueue(prev => {
+              const filtered = [];
+              for (const newCard of newFocusCards) {
+                const combined = [...prev, ...filtered];
+                const isDuplicate = combined.some(oldCard => {
+                  const titleSim = getWordOverlap(oldCard.directionText, newCard.directionText);
+                  const phraseSim = (oldCard.singlePhrase && newCard.singlePhrase)
+                    ? getWordOverlap(oldCard.singlePhrase, newCard.singlePhrase)
+                    : 0;
+                  return titleSim > 0.55 || phraseSim > 0.55;
+                });
+                
+                if (!isDuplicate) {
+                  filtered.push(newCard);
+                  addedCount++;
+                }
+              }
+              return [...prev, ...filtered];
+            });
             
-            // Option 4: Trigger visual flash and audio chime
-            setFlashSuggestion(true);
-            playSuggestionChime();
-            if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-            flashTimeoutRef.current = setTimeout(() => {
-              setFlashSuggestion(false);
-            }, 3000);
+            // Trigger visual flash and audio chime ONLY if new, unique cues were actually added
+            if (addedCount > 0) {
+              setFlashSuggestion(true);
+              playSuggestionChime();
+              if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+              flashTimeoutRef.current = setTimeout(() => {
+                setFlashSuggestion(false);
+              }, 3000);
+            }
             break;
           case 'error':
             setErrorMessage(payload.message);
@@ -810,44 +814,7 @@ export default function App() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleWheel = (e) => {
-    if (focusQueue.length === 0) return;
-    
-    // Prevent accidental micro-scrolls from triggering card transitions
-    if (Math.abs(e.deltaY) < 15) return;
 
-    if (isScrollingRef.current) return;
-
-    isScrollingRef.current = true;
-    setTimeout(() => {
-      isScrollingRef.current = false;
-    }, 600); // 600ms cooldown
-
-    if (e.deltaY > 0) {
-      // Scroll Down -> Complete current card and go to next
-      if (viewIndex < focusQueue.length) {
-        const cardToComplete = focusQueue[viewIndex];
-        setCompletedCardIds(prev => {
-          const newSet = new Set(prev);
-          newSet.add(cardToComplete.id);
-          return newSet;
-        });
-        setViewIndex(prev => prev + 1);
-      }
-    } else if (e.deltaY < 0) {
-      // Scroll Up -> Go to previous card and un-complete it
-      if (viewIndex > 0) {
-        const prevIndex = viewIndex - 1;
-        const cardToUncomplete = focusQueue[prevIndex];
-        setViewIndex(prevIndex);
-        setCompletedCardIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(cardToUncomplete.id);
-          return newSet;
-        });
-      }
-    }
-  };
 
   return (
     <div className="app-container">
@@ -961,6 +928,7 @@ export default function App() {
                 <option value="saas">B2B SaaS & Tech</option>
                 <option value="insurance">B2C Insurance Sales</option>
                 <option value="realestate">Real Estate & Property</option>
+                <option value="newtonschool">Newton School Bangalore</option>
                 <option value="general">General B2C/B2B Sales</option>
               </select>
             </div>
@@ -1032,14 +1000,19 @@ export default function App() {
                     <div className="utt-meta">
                       <span className="utt-speaker-label">{speakerName}</span>
                       
-                      {repSpeakerId === null && (
-                        <button 
-                          className="btn-mark-rep-badge"
-                          onClick={() => markSpeakerAsRep(utt.speaker)}
-                        >
-                          Mark as Rep
-                        </button>
-                      )}
+                      <button 
+                        className="btn-mark-rep-badge"
+                        style={{ marginLeft: '8px', cursor: 'pointer', padding: '2px 6px', fontSize: '10px', borderRadius: '4px', background: '#3f3f46', color: '#fff', border: 'none' }}
+                        onClick={() => {
+                          if (isRep) {
+                            markSpeakerAsRep(utt.speaker === 0 ? 1 : 0);
+                          } else {
+                            markSpeakerAsRep(utt.speaker);
+                          }
+                        }}
+                      >
+                        {isRep ? 'Swap to Customer' : 'Swap to Rep'}
+                      </button>
                       
                       <span className="utt-timestamp">{formatTime(utt.start)}</span>
                     </div>
@@ -1080,125 +1053,71 @@ export default function App() {
             <button className="btn-secondary" onClick={handleDownloadSuggestions} style={{ height: 'fit-content', alignSelf: 'center', padding: '6px 12px', fontSize: '12px' }}>⬇ Download Log</button>
           </div>
 
-          <div className="hud-suggestions-scroll" onWheel={handleWheel}>
-            <div className="focus-mode-container">
-              {embedder && focusQueue.length > 0 && (
-                <div className="semantic-matcher-status">
-                  <div className="semantic-pulse"></div>
-                  Matcher Active {matchScore > 0 && `(Score: ${matchScore.toFixed(2)})`}
-                </div>
-              )}
+          <div className="hud-suggestions-scroll">
+            {embedder && focusQueue.length > 0 && (
+              <div className="semantic-matcher-status">
+                <div className="semantic-pulse"></div>
+                Matcher Active {matchScore > 0 && `(Score: ${matchScore.toFixed(2)})`}
+              </div>
+            )}
 
-              {/* Background Canvas: watermark state showing radar monitoring or small talk */}
-              {(() => {
-                const hasActiveCard = focusQueue.length > 0 && viewIndex < focusQueue.length;
-                const isSmallTalk = backgroundStatus.toLowerCase().includes("great job") || backgroundStatus.toLowerCase().includes("keep going");
-                return (
-                  <div className={`hud-background-canvas ${hasActiveCard ? 'hidden-canvas' : ''}`}>
-                    <div className="radar-icon-wrapper">
-                      <div className="radar-pulse ring-1"></div>
-                      <div className="radar-pulse ring-2"></div>
-                      <div className="radar-pulse ring-3"></div>
-                      <div className="radar-core">{isSmallTalk ? "🎉" : "💡"}</div>
-                    </div>
-                    <p>{backgroundStatus}</p>
-                    <span className="hud-empty-sub">
-                      {isSmallTalk 
-                        ? "Cues completed. Relax or continue with general small talk."
-                        : "Gemini will inject real-time negotiation tactics and objection cues here."}
-                    </span>
+            {/* Background Canvas: watermark state showing radar monitoring or small talk */}
+            {(() => {
+              const hasActiveCard = focusQueue.length > 0;
+              const isSmallTalk = backgroundStatus.toLowerCase().includes("great job") || backgroundStatus.toLowerCase().includes("keep going");
+              return (
+                <div className={`hud-background-canvas ${hasActiveCard ? 'hidden-canvas' : ''}`}>
+                  <div className="radar-icon-wrapper">
+                    <div className="radar-pulse ring-1"></div>
+                    <div className="radar-pulse ring-2"></div>
+                    <div className="radar-pulse ring-3"></div>
+                    <div className="radar-core">{isSmallTalk ? "🎉" : "💡"}</div>
                   </div>
-                );
-              })()}
+                  <p>{backgroundStatus}</p>
+                  <span className="hud-empty-sub">
+                    {isSmallTalk 
+                      ? "Cues completed. Relax or continue with general small talk."
+                      : "Gemini will inject real-time negotiation tactics and objection cues here."}
+                  </span>
+                </div>
+              );
+            })()}
 
-              {/* Floating Glass Cue Cards */}
-              {(() => {
-                if (focusQueue.length === 0) return null;
+            {/* Timeline-style vertical list of cues */}
+            {(() => {
+              if (focusQueue.length === 0) return null;
 
-                const isEndState = viewIndex >= focusQueue.length;
-
-                if (isEndState) {
-                  // When scrolled past the last card, render the top completed card sticking out
-                  const lastCard = focusQueue[focusQueue.length - 1];
-                  return (
-                    <div className="focus-card peek-top-card">
-                      <div className="peek-handle"></div>
-                      <h3 className="focus-title" style={{ fontSize: '14px', opacity: 0.6, margin: 0 }}>
-                        ✓ {lastCard.directionText}
-                      </h3>
-                      <div className="focus-progress" style={{ position: 'relative', bottom: 0, marginTop: '8px' }}>
-                        {focusQueue.map((c, i) => (
-                          <div 
-                            key={i} 
-                            className="progress-dot completed"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                }
-
-                const activeCard = focusQueue[viewIndex];
-                if (!activeCard) return null;
-
-                const isAnimating = animatingCardId === activeCard.id;
-                const isCompleted = completedCardIds.has(activeCard.id);
-
-
-
-                return (
-                  <div className={`focus-card ${isAnimating ? 'completed' : ''} ${isCompleted ? 'card-status-completed' : ''}`}>
-                    <h3 className="focus-title">{activeCard.directionText}</h3>
-                    
-                    <div className="focus-phrases">
-                      {activeCard.singlePhrase && (
-                        <div className="focus-phrase-bubble" style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                          <span className="step-phrase-quote">“</span>
-                          {activeCard.singlePhrase}
-                          <span className="step-phrase-quote">”</span>
+              return (
+                <div className="suggestions-timeline-container">
+                  <div className="suggestions-timeline-line"></div>
+                  {focusQueue.map((card, index) => {
+                    const isCompleted = completedCardIds.has(card.id);
+                    return (
+                      <div 
+                        key={card.id} 
+                        className={`timeline-cue-item ${isCompleted ? 'completed' : ''}`}
+                      >
+                        <div className="timeline-cue-dot"></div>
+                        <div className="timeline-cue-content">
+                          <span className="timeline-cue-number">
+                            {isCompleted ? 'Completed ✓' : `Cue #${index + 1}`}
+                          </span>
+                          <h4 className="timeline-cue-instruction">
+                            {card.directionText}
+                          </h4>
+                          {card.singlePhrase && (
+                            <p className="timeline-cue-phrase">
+                              “{card.singlePhrase}”
+                            </p>
+                          )}
                         </div>
-                      )}
-                      {activeCard.softPhrase && activeCard.boldPhrase && (
-                        <>
-                          <div className="focus-phrase-bubble" style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#a7f3d0' }}>
-                            <span className="phrase-badge soft-badge">Soft</span>
-                            <br/>
-                            <span className="step-phrase-quote">“</span>
-                            {activeCard.softPhrase}
-                            <span className="step-phrase-quote">”</span>
-                          </div>
-                          <div className="focus-phrase-bubble" style={{ background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.2)', color: '#e9d5ff' }}>
-                            <span className="phrase-badge bold-badge">Bold</span>
-                            <br/>
-                            <span className="step-phrase-quote">“</span>
-                            {activeCard.boldPhrase}
-                            <span className="step-phrase-quote">”</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="focus-progress">
-                      {focusQueue.map((c, i) => (
-                        <div 
-                          key={i} 
-                          className={`progress-dot ${i === viewIndex ? 'active' : ''} ${completedCardIds.has(c.id) ? 'completed' : ''}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {focusQueue.length > 0 && (
-                <div className="scroll-hint">
-                  <div className="mouse-icon">
-                    <div className="mouse-wheel"></div>
-                  </div>
-                  <span>Scroll to Navigate</span>
+                      </div>
+                    );
+                  })}
+                  <div ref={suggestionsEndRef} />
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
         </section>
       </div>
