@@ -1,12 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { pipeline, env } from '@xenova/transformers';
+import './App.css';
+
+// Disable loading local models since we are fetching from huggingface
+env.allowLocalModels = false;
+
+// Helper to load from localStorage
+const loadState = (key, defaultValue) => {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn("Failed to load state from localStorage:", e);
+  }
+  return defaultValue;
+};
 
 export default function App() {
   // Config States
-  const [model, setModel] = useState('nova-3');
-  const [language, setLanguage] = useState('en-US');
-  const [smartFormat, setSmartFormat] = useState(true);
-  const [interimResults, setInterimResults] = useState(true);
-  const [diarizationMode, setDiarizationMode] = useState('multichannel'); // 'multichannel' or 'ai'
+  const [model, setModel] = useState(() => loadState('cluely_model', 'nova-3'));
+  const [language, setLanguage] = useState(() => loadState('cluely_language', 'en-US'));
+  const [smartFormat, setSmartFormat] = useState(() => loadState('cluely_smartFormat', true));
+  const [interimResults, setInterimResults] = useState(() => loadState('cluely_interimResults', true));
+  const [diarizationMode, setDiarizationMode] = useState(() => loadState('cluely_diarizationMode', 'multichannel'));
 
   // Connection & Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -19,14 +37,32 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
 
   // Chat & Transcript States
-  const [utterances, setUtterances] = useState([]);
+  const [utterances, setUtterances] = useState(() => loadState('cluely_utterances', []));
   const [interimText, setInterimText] = useState('');
-  const [repSpeakerId, setRepSpeakerId] = useState(null);
+  const [repSpeakerId, setRepSpeakerId] = useState(() => loadState('cluely_repSpeakerId', 0));
 
-  // AI Suggestion States
-  const [suggestions, setSuggestions] = useState([]);
-  const [playbook, setPlaybook] = useState('saas'); // 'saas', 'insurance', 'realestate', 'general'
+  // Copilot HUD States
+  const [suggestions, setSuggestions] = useState(() => loadState('cluely_suggestions', []));
+  const [focusQueue, setFocusQueue] = useState(() => loadState('cluely_focusQueue', []));
+  const [viewIndex, setViewIndex] = useState(() => loadState('cluely_viewIndex', 0));
+  const [completedCardIds, setCompletedCardIds] = useState(() => new Set(loadState('cluely_completedCardIds', [])));
+  const [embedder, setEmbedder] = useState(null);
+  const [matchScore, setMatchScore] = useState(0); // For UI visualization
+  const [animatingCardId, setAnimatingCardId] = useState(null); // For slide-away animation
+  const [playbook, setPlaybook] = useState(() => loadState('cluely_playbook', 'saas'));
   const [flashSuggestion, setFlashSuggestion] = useState(false);
+  const [backgroundStatus, setBackgroundStatus] = useState(() => loadState('cluely_backgroundStatus', 'Monitoring conversation...'));
+
+  // Sync state refs to prevent stale closure bugs in asynchronous timeouts and callbacks
+  const completedCardIdsRef = useRef(completedCardIds);
+  useEffect(() => {
+    completedCardIdsRef.current = completedCardIds;
+  }, [completedCardIds]);
+
+  const focusQueueRef = useRef(focusQueue);
+  useEffect(() => {
+    focusQueueRef.current = focusQueue;
+  }, [focusQueue]);
 
   // Refs for Web Audio API & WebSocket
   const socketRef = useRef(null);
@@ -41,6 +77,11 @@ export default function App() {
   // Auto-scroll refs
   const transcriptEndRef = useRef(null);
   const suggestionsEndRef = useRef(null);
+  const isScrollingRef = useRef(false);
+
+  // Initialize lastProcessedUtteranceIdRef from the loaded utterances history to survive reloads
+  const initialUtterances = loadState('cluely_utterances', []);
+  const lastProcessedUtteranceIdRef = useRef(initialUtterances.length > 0 ? initialUtterances[initialUtterances.length - 1].id : null);
 
   // Auto-scroll transcript on new items
   useEffect(() => {
@@ -64,6 +105,152 @@ export default function App() {
     };
   }, []);
 
+  // Load Transformers.js Embedder on mount
+  useEffect(() => {
+    const initEmbedder = async () => {
+      try {
+        console.log("Loading all-MiniLM-L6-v2 embedding model...");
+        // Use quantized INT8 for extreme speed
+        const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+          quantized: true,
+        });
+        setEmbedder(() => extractor);
+        console.log("Embedding model loaded successfully!");
+      } catch (err) {
+        console.error("Failed to load embedding model:", err);
+      }
+    };
+    initEmbedder();
+  }, []);
+
+  // Persist states to localStorage
+  useEffect(() => { localStorage.setItem('cluely_model', JSON.stringify(model)); }, [model]);
+  useEffect(() => { localStorage.setItem('cluely_backgroundStatus', JSON.stringify(backgroundStatus)); }, [backgroundStatus]);
+  useEffect(() => { localStorage.setItem('cluely_language', JSON.stringify(language)); }, [language]);
+  useEffect(() => { localStorage.setItem('cluely_smartFormat', JSON.stringify(smartFormat)); }, [smartFormat]);
+  useEffect(() => { localStorage.setItem('cluely_interimResults', JSON.stringify(interimResults)); }, [interimResults]);
+  useEffect(() => { localStorage.setItem('cluely_diarizationMode', JSON.stringify(diarizationMode)); }, [diarizationMode]);
+  useEffect(() => { localStorage.setItem('cluely_repSpeakerId', JSON.stringify(repSpeakerId)); }, [repSpeakerId]);
+  useEffect(() => { localStorage.setItem('cluely_playbook', JSON.stringify(playbook)); }, [playbook]);
+  useEffect(() => { localStorage.setItem('cluely_utterances', JSON.stringify(utterances)); }, [utterances]);
+  useEffect(() => { localStorage.setItem('cluely_suggestions', JSON.stringify(suggestions)); }, [suggestions]);
+  useEffect(() => { localStorage.setItem('cluely_focusQueue', JSON.stringify(focusQueue)); }, [focusQueue]);
+  useEffect(() => { localStorage.setItem('cluely_viewIndex', JSON.stringify(viewIndex)); }, [viewIndex]);
+  useEffect(() => { 
+    localStorage.setItem('cluely_completedCardIds', JSON.stringify(Array.from(completedCardIds))); 
+  }, [completedCardIds]);
+
+  // Cosine Similarity Helper
+  const cosineSimilarity = (vecA, vecB) => {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  };
+
+  // Sync speaker ID to websocket when updated in UI
+  useEffect(() => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && repSpeakerId !== null) {
+      socketRef.current.send(JSON.stringify({ type: 'set_rep_speaker', speaker_id: repSpeakerId }));
+    }
+  }, [repSpeakerId]);
+
+  // Semantic Matching Engine (Smart Out-Of-Order)
+  useEffect(() => {
+    const checkSemanticMatch = async () => {
+      if (!embedder || utterances.length === 0 || focusQueue.length === 0) return;
+
+      const latestUtt = utterances[utterances.length - 1];
+      
+      // Prevent matching against the same utterance multiple times (especially when scrolling up)
+      if (lastProcessedUtteranceIdRef.current === latestUtt.id) return;
+
+      const isRep = repSpeakerId !== null ? String(latestUtt.speaker) === String(repSpeakerId) : false;
+      
+      // Only check if the Rep just spoke
+      if (!isRep) return;
+
+      // Mark this utterance as processed
+      lastProcessedUtteranceIdRef.current = latestUtt.id;
+
+      try {
+        const repEmbedOut = await embedder(latestUtt.text, { pooling: 'mean', normalize: true });
+        const repVec = Array.from(repEmbedOut.data);
+
+        // Check against all INCOMPLETE cards
+        const incompleteCards = focusQueue.map((card, idx) => ({ card, idx })).filter(item => !completedCardIds.has(item.card.id));
+        
+        let bestMatch = null;
+        let maxSim = 0;
+
+        for (const { card, idx } of incompleteCards) {
+          let phrasesToMatch = [];
+          if (card.softPhrase) phrasesToMatch.push(card.softPhrase);
+          if (card.boldPhrase) phrasesToMatch.push(card.boldPhrase);
+          if (card.singlePhrase) phrasesToMatch.push(card.singlePhrase);
+
+          if (phrasesToMatch.length === 0) continue;
+
+          for (const phrase of phrasesToMatch) {
+            const phraseEmbedOut = await embedder(phrase, { pooling: 'mean', normalize: true });
+            const phraseVec = Array.from(phraseEmbedOut.data);
+            const sim = cosineSimilarity(repVec, phraseVec);
+            if (sim > maxSim) {
+              maxSim = sim;
+              bestMatch = { card, idx };
+            }
+          }
+        }
+
+        setMatchScore(maxSim);
+        console.log(`Semantic Match Score: ${maxSim.toFixed(2)} for "${latestUtt.text}" against phrases. Best match card index: ${bestMatch ? bestMatch.idx : 'none'}`);
+
+        // Threshold for MiniLM
+        if (maxSim > 0.65 && bestMatch) {
+          console.log(`Match threshold exceeded for Card ${bestMatch.idx}!`);
+          
+          setCompletedCardIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(bestMatch.card.id);
+            return newSet;
+          });
+
+          // Auto-scroll ONLY if the matched card is the one the user is currently looking at
+          if (bestMatch.idx === viewIndex) {
+            setAnimatingCardId(bestMatch.card.id);
+            setTimeout(() => {
+              setViewIndex(prev => {
+                let nextIdx = prev + 1;
+                const updatedCompleted = new Set(completedCardIdsRef.current);
+                updatedCompleted.add(bestMatch.card.id);
+                while (nextIdx < focusQueueRef.current.length && updatedCompleted.has(focusQueueRef.current[nextIdx].id)) {
+                  nextIdx++;
+                }
+                return nextIdx;
+              });
+              setAnimatingCardId(null);
+            }, 400); // Wait for CSS animation
+          }
+          
+          // Clear visual debug score after a moment
+          setTimeout(() => setMatchScore(0), 3000);
+        }
+      } catch (err) {
+        console.error('Error during semantic match:', err);
+      }
+    };
+
+    checkSemanticMatch();
+  }, [utterances, viewIndex, focusQueue, embedder, repSpeakerId, completedCardIds]);
+
+
+
   // Parser to convert Gemini's THEN-separated text to step checklist array
   const parseSuggestion = (text) => {
     if (!text) return [];
@@ -85,11 +272,20 @@ export default function App() {
   // -----------------------------------------------------------------
 
   const startRecordingSession = async () => {
-    setErrorMessage('');
-    setPacketCount(0);
-    setUtterances([]);
-    setInterimText('');
-    setSuggestions([]);
+    const resetSession = () => {
+      setUtterances([]);
+      setInterimText('');
+      setSuggestions([]);
+      setFocusQueue([]);
+      setViewIndex(0);
+      setCompletedCardIds(new Set());
+      setMatchScore(0);
+      setErrorMessage('');
+      setRepSpeakerId(0); // Default to Speaker 0 (Rep)
+      setBackgroundStatus('Monitoring conversation...');
+      lastProcessedUtteranceIdRef.current = null;
+    };
+    resetSession();
     
     // 1. Get Mic Stream
     setStatus(prev => ({ ...prev, mic: 'requested' }));
@@ -163,9 +359,6 @@ export default function App() {
         setErrorMessage('Audio mixer configuration failed: ' + err.message);
         return;
       }
-    } else {
-      // AI Diarization: reset rep speaker (manually marked by user)
-      setRepSpeakerId(null);
     }
 
     // Keep stream references
@@ -288,6 +481,9 @@ export default function App() {
 
     ws.onopen = () => {
       setStatus(prev => ({ ...prev, server: 'connected', deepgram: 'connecting' }));
+      if (repSpeakerId !== null) {
+        ws.send(JSON.stringify({ type: 'set_rep_speaker', speaker_id: repSpeakerId }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -308,15 +504,100 @@ export default function App() {
             setUtterances(prev => [...prev, payload.data]);
             break;
           case 'ai_suggestion':
-            const newSteps = parseSuggestion(payload.data.text);
+            const rawText = payload.data.text || "";
+            const isSmallTalk = rawText.toLowerCase().includes("great job") || rawText.toLowerCase().includes("keep going");
+
+            if (isSmallTalk) {
+              // Update background status
+              setBackgroundStatus("Great job, keep going!");
+              
+              // Mark all current focusQueue cards as completed using the up-to-date ref
+              setCompletedCardIds(prev => {
+                const newSet = new Set(prev);
+                focusQueueRef.current.forEach(card => newSet.add(card.id));
+                return newSet;
+              });
+              
+              // Scroll past all current focusQueue cards
+              setViewIndex(focusQueueRef.current.length);
+              break;
+            }
+
+            const rawSteps = parseSuggestion(rawText);
+            
+            // Filter out any small-talk steps dynamically to prevent them from becoming cards
+            const isSmallTalkStep = (step) => {
+              const lower = step.toLowerCase();
+              return (
+                lower.includes("great job") || 
+                lower.includes("keep going") || 
+                lower.includes("no response cue") ||
+                lower.includes("general small talk") ||
+                lower.includes("monitoring conversation")
+              );
+            };
+
+            const newSteps = rawSteps.filter(step => !isSmallTalkStep(step));
+
+            if (newSteps.length === 0) {
+              // It is solely small talk - update the background status canvas and scroll past any existing cues
+              setBackgroundStatus("Great job, keep going!");
+              setCompletedCardIds(prev => {
+                const newSet = new Set(prev);
+                focusQueueRef.current.forEach(card => newSet.add(card.id));
+                return newSet;
+              });
+              setViewIndex(focusQueueRef.current.length);
+              break;
+            }
+
+            // Reset background status since we have active cues
+            setBackgroundStatus("Monitoring conversation...");
+
+            // Build old suggestions log format
             const suggestionObj = {
               id: Date.now() + Math.random().toString(36).substring(2, 7),
-              rawText: payload.data.text,
+              rawText: rawText,
               steps: newSteps,
               checkedSteps: new Set(),
               timestamp: payload.data.timestamp || Date.now()
             };
             setSuggestions(prev => [...prev, suggestionObj]);
+            
+            // Build new Focus Queue format
+            const newFocusCards = newSteps.map(step => {
+              const multiPhraseMatch = step.match(/^(.*?)\s*\(Soft:\s*["']?(.*?)["']?\s*\|\s*Bold:\s*["']?(.*?)["']?\)$/i);
+              let directionText = step;
+              let softPhrase = null;
+              let boldPhrase = null;
+              let singlePhrase = null;
+              
+              if (multiPhraseMatch) {
+                directionText = multiPhraseMatch[1].trim();
+                softPhrase = multiPhraseMatch[2].replace(/^["']|["']$/g, '').trim();
+                boldPhrase = multiPhraseMatch[3].replace(/^["']|["']$/g, '').trim();
+              } else {
+                const singlePhraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
+                if (singlePhraseMatch) {
+                  directionText = singlePhraseMatch[1].trim();
+                  singlePhrase = singlePhraseMatch[2].replace(/^["']|["']$/g, '').trim();
+                } else {
+                  // Fallback: use directionText as a singlePhrase to match
+                  singlePhrase = step.trim();
+                }
+              }
+
+              return {
+                id: Date.now() + Math.random().toString(36).substring(2),
+                directionText,
+                softPhrase,
+                boldPhrase,
+                singlePhrase,
+                originalText: step
+              };
+            });
+            
+            setFocusQueue(prev => [...prev, ...newFocusCards]);
             
             // Option 4: Trigger visual flash and audio chime
             setFlashSuggestion(true);
@@ -527,6 +808,45 @@ export default function App() {
     const m = Math.floor(timeInSecs / 60);
     const s = Math.floor(timeInSecs % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleWheel = (e) => {
+    if (focusQueue.length === 0) return;
+    
+    // Prevent accidental micro-scrolls from triggering card transitions
+    if (Math.abs(e.deltaY) < 15) return;
+
+    if (isScrollingRef.current) return;
+
+    isScrollingRef.current = true;
+    setTimeout(() => {
+      isScrollingRef.current = false;
+    }, 600); // 600ms cooldown
+
+    if (e.deltaY > 0) {
+      // Scroll Down -> Complete current card and go to next
+      if (viewIndex < focusQueue.length) {
+        const cardToComplete = focusQueue[viewIndex];
+        setCompletedCardIds(prev => {
+          const newSet = new Set(prev);
+          newSet.add(cardToComplete.id);
+          return newSet;
+        });
+        setViewIndex(prev => prev + 1);
+      }
+    } else if (e.deltaY < 0) {
+      // Scroll Up -> Go to previous card and un-complete it
+      if (viewIndex > 0) {
+        const prevIndex = viewIndex - 1;
+        const cardToUncomplete = focusQueue[prevIndex];
+        setViewIndex(prevIndex);
+        setCompletedCardIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(cardToUncomplete.id);
+          return newSet;
+        });
+      }
+    }
   };
 
   return (
@@ -760,106 +1080,125 @@ export default function App() {
             <button className="btn-secondary" onClick={handleDownloadSuggestions} style={{ height: 'fit-content', alignSelf: 'center', padding: '6px 12px', fontSize: '12px' }}>⬇ Download Log</button>
           </div>
 
-          <div className="hud-suggestions-scroll">
-            {suggestions.length === 0 ? (
-              <div className="hud-empty-state">
-                <div className="radar-icon-wrapper">
-                  <div className="radar-pulse ring-1"></div>
-                  <div className="radar-pulse ring-2"></div>
-                  <div className="radar-pulse ring-3"></div>
-                  <div className="radar-core">💡</div>
+          <div className="hud-suggestions-scroll" onWheel={handleWheel}>
+            <div className="focus-mode-container">
+              {embedder && focusQueue.length > 0 && (
+                <div className="semantic-matcher-status">
+                  <div className="semantic-pulse"></div>
+                  Matcher Active {matchScore > 0 && `(Score: ${matchScore.toFixed(2)})`}
                 </div>
-                <p>Monitoring conversation...</p>
-                <span className="hud-empty-sub">Gemini will inject real-time negotiation tactics and objection cues here based on customer speech.</span>
-              </div>
-            ) : (
-              <div className="suggestions-list">
-                {suggestions.map((sug) => (
-                  <div key={sug.id} className="suggestion-card">
-                    <div className="sug-header">
-                      <div className="sug-label-section">
-                        <span className="sug-tag-icon">⚡</span>
-                        <span className="sug-title">TACTICAL CUES</span>
+              )}
+
+              {/* Background Canvas: watermark state showing radar monitoring or small talk */}
+              {(() => {
+                const hasActiveCard = focusQueue.length > 0 && viewIndex < focusQueue.length;
+                const isSmallTalk = backgroundStatus.toLowerCase().includes("great job") || backgroundStatus.toLowerCase().includes("keep going");
+                return (
+                  <div className={`hud-background-canvas ${hasActiveCard ? 'hidden-canvas' : ''}`}>
+                    <div className="radar-icon-wrapper">
+                      <div className="radar-pulse ring-1"></div>
+                      <div className="radar-pulse ring-2"></div>
+                      <div className="radar-pulse ring-3"></div>
+                      <div className="radar-core">{isSmallTalk ? "🎉" : "💡"}</div>
+                    </div>
+                    <p>{backgroundStatus}</p>
+                    <span className="hud-empty-sub">
+                      {isSmallTalk 
+                        ? "Cues completed. Relax or continue with general small talk."
+                        : "Gemini will inject real-time negotiation tactics and objection cues here."}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* Floating Glass Cue Cards */}
+              {(() => {
+                if (focusQueue.length === 0) return null;
+
+                const isEndState = viewIndex >= focusQueue.length;
+
+                if (isEndState) {
+                  // When scrolled past the last card, render the top completed card sticking out
+                  const lastCard = focusQueue[focusQueue.length - 1];
+                  return (
+                    <div className="focus-card peek-top-card">
+                      <div className="peek-handle"></div>
+                      <h3 className="focus-title" style={{ fontSize: '14px', opacity: 0.6, margin: 0 }}>
+                        ✓ {lastCard.directionText}
+                      </h3>
+                      <div className="focus-progress" style={{ position: 'relative', bottom: 0, marginTop: '8px' }}>
+                        {focusQueue.map((c, i) => (
+                          <div 
+                            key={i} 
+                            className="progress-dot completed"
+                          />
+                        ))}
                       </div>
-                      <span className="sug-time">
-                        {new Date(sug.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
+                    </div>
+                  );
+                }
+
+                const activeCard = focusQueue[viewIndex];
+                if (!activeCard) return null;
+
+                const isAnimating = animatingCardId === activeCard.id;
+                const isCompleted = completedCardIds.has(activeCard.id);
+
+
+
+                return (
+                  <div className={`focus-card ${isAnimating ? 'completed' : ''} ${isCompleted ? 'card-status-completed' : ''}`}>
+                    <h3 className="focus-title">{activeCard.directionText}</h3>
+                    
+                    <div className="focus-phrases">
+                      {activeCard.singlePhrase && (
+                        <div className="focus-phrase-bubble" style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                          <span className="step-phrase-quote">“</span>
+                          {activeCard.singlePhrase}
+                          <span className="step-phrase-quote">”</span>
+                        </div>
+                      )}
+                      {activeCard.softPhrase && activeCard.boldPhrase && (
+                        <>
+                          <div className="focus-phrase-bubble" style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#a7f3d0' }}>
+                            <span className="phrase-badge soft-badge">Soft</span>
+                            <br/>
+                            <span className="step-phrase-quote">“</span>
+                            {activeCard.softPhrase}
+                            <span className="step-phrase-quote">”</span>
+                          </div>
+                          <div className="focus-phrase-bubble" style={{ background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.2)', color: '#e9d5ff' }}>
+                            <span className="phrase-badge bold-badge">Bold</span>
+                            <br/>
+                            <span className="step-phrase-quote">“</span>
+                            {activeCard.boldPhrase}
+                            <span className="step-phrase-quote">”</span>
+                          </div>
+                        </>
+                      )}
                     </div>
 
-                    <div className="sug-stepper">
-                      {sug.steps.map((step, idx) => {
-                        const isChecked = sug.checkedSteps.has(idx);
-                        
-                        // Check for multi-style phrasings (Soft vs Bold)
-                        const multiPhraseMatch = step.match(/^(.*?)\s*\(Soft:\s*["']?(.*?)["']?\s*\|\s*Bold:\s*["']?(.*?)["']?\)$/i);
-                        
-                        let directionText = step;
-                        let suggestedPhrase = null;
-                        let softPhrase = null;
-                        let boldPhrase = null;
-
-                        if (multiPhraseMatch) {
-                          directionText = multiPhraseMatch[1];
-                          softPhrase = multiPhraseMatch[2];
-                          boldPhrase = multiPhraseMatch[3];
-                        } else {
-                          const singlePhraseMatch = step.match(/^(.*?)\s*\(Say:\s*["']?(.*?)["']?\)$/i) || 
-                                                    step.match(/^(.*?)\s*Say:\s*["']?(.*?)["']?$/i);
-                          if (singlePhraseMatch) {
-                            directionText = singlePhraseMatch[1];
-                            suggestedPhrase = singlePhraseMatch[2];
-                          }
-                        }
-
-                        return (
-                          <div 
-                            key={idx} 
-                            className={`stepper-item ${isChecked ? 'step-completed' : ''}`}
-                            onClick={() => toggleStepChecked(sug.id, idx)}
-                          >
-                            <div className="stepper-checkbox-wrapper">
-                              <div className="stepper-checkbox">
-                                {isChecked && <span className="checkmark-tick">✓</span>}
-                              </div>
-                              {idx < sug.steps.length - 1 && <div className="stepper-connector-line"></div>}
-                            </div>
-                            
-                            <div className="stepper-content">
-                              <span className="step-number">STEP {idx + 1}</span>
-                              <p className="step-instruction">{directionText}</p>
-                              {suggestedPhrase && (
-                                <div className="step-phrase-bubble">
-                                  <span className="step-phrase-quote">“</span>
-                                  {suggestedPhrase}
-                                  <span className="step-phrase-quote">”</span>
-                                </div>
-                              )}
-                              {softPhrase && boldPhrase && (
-                                <div className="step-multiphrase-container">
-                                  <div className="multiphrase-bubble soft-bubble">
-                                    <span className="phrase-badge soft-badge">Soft</span>
-                                    <span className="step-phrase-quote">“</span>
-                                    {softPhrase}
-                                    <span className="step-phrase-quote">”</span>
-                                  </div>
-                                  <div className="multiphrase-bubble bold-bubble">
-                                    <span className="phrase-badge bold-badge">Bold</span>
-                                    <span className="step-phrase-quote">“</span>
-                                    {boldPhrase}
-                                    <span className="step-phrase-quote">”</span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="focus-progress">
+                      {focusQueue.map((c, i) => (
+                        <div 
+                          key={i} 
+                          className={`progress-dot ${i === viewIndex ? 'active' : ''} ${completedCardIds.has(c.id) ? 'completed' : ''}`}
+                        />
+                      ))}
                     </div>
                   </div>
-                ))}
-                <div ref={suggestionsEndRef} />
-              </div>
-            )}
+                );
+              })()}
+
+              {focusQueue.length > 0 && (
+                <div className="scroll-hint">
+                  <div className="mouse-icon">
+                    <div className="mouse-wheel"></div>
+                  </div>
+                  <span>Scroll to Navigate</span>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>

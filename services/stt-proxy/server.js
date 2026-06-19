@@ -27,8 +27,8 @@ app.use(express.static(path.join(__dirname, "public")));
 if (!process.env.DEEPGRAM_API_KEY) {
   console.warn("WARNING: DEEPGRAM_API_KEY is not defined.");
 }
-if (!process.env.GEMINI_API_KEY) {
-  console.warn("WARNING: GEMINI_API_KEY is not defined. AI suggestions will fail.");
+if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
+  console.warn("WARNING: Neither GEMINI_API_KEY nor GROQ_API_KEY is defined. AI suggestions will fail.");
 }
 
 // Initialize Gemini Client
@@ -90,7 +90,7 @@ YOUR STRICT OUTPUT RULES:
 3. For each bullet point, provide a short tactical direction AND two suggested response phrases: one "Soft" (consultative, empathy-first) and one "Bold" (direct, assertive/objection qualification).
 4. Enclose both suggested phrases in parentheses at the end of the line using the exact format: (Soft: "your consultative phrase" | Bold: "your direct phrase").
 5. Keep the direction cue and the suggested phrases extremely concise. Do not include any other explanations.
-6. If the customer is making small talk, output exactly: "Great job, keep going!".
+6. If the customer is making small talk or if no active negotiation tactic is needed, do NOT output any bullet points or phrases. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any markdown formatting, bullet points, numbers, or explanation.
 
 EXAMPLE GOOD OUTPUT:
 • Show empathy for budget stress (Soft: "I completely understand that budget is top of mind right now." | Bold: "If budget wasn't an issue, would this be the right fit for you?")
@@ -123,44 +123,76 @@ THEN
     // Determine current role to see if we should trigger AI
     let currentRole = "Unknown";
     if (repSpeakerId !== null) {
-      currentRole = utt.speaker === repSpeakerId ? "Rep" : "Customer";
+      currentRole = String(utt.speaker) === String(repSpeakerId) ? "Rep" : "Customer";
     } else {
-      currentRole = utt.speaker === 0 ? "Rep" : "Customer";
+      currentRole = String(utt.speaker) === "0" ? "Rep" : "Customer";
     }
 
+    console.log(`[Role Mapping] Speaker ${utt.speaker} classified as ${currentRole} (Rep ID: ${repSpeakerId ?? 0})`);
+
     // TRIGGER AI IF IT IS THE CUSTOMER SPEAKING
-    if (currentRole === "Customer" && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "placeholder") {
-      try {
-        // Format the history dynamically so retrospective role changes apply to the whole context
-        const formattedHistory = conversationHistory.map(h => {
-          let r = "Unknown";
-          if (repSpeakerId !== null) {
-            r = h.speaker === repSpeakerId ? "Rep" : "Customer";
+    if (currentRole === "Customer") {
+      const groqApiKey = process.env.GROQ_API_KEY;
+      const geminiApiKey = process.env.GEMINI_API_KEY;
+
+      if ((groqApiKey && groqApiKey !== "placeholder") || (geminiApiKey && geminiApiKey !== "placeholder")) {
+        try {
+          // Format the history dynamically so retrospective role changes apply to the whole context
+          const formattedHistory = conversationHistory.map(h => {
+            const isRepSpeaker = repSpeakerId !== null 
+              ? String(h.speaker) === String(repSpeakerId) 
+              : String(h.speaker) === "0";
+            return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
+          }).join("\n");
+          
+          const fullPrompt = `${salesCoachSystemPrompt}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
+
+          let advice = "";
+
+          if (groqApiKey && groqApiKey !== "placeholder") {
+            console.log(`[AI Triggered] Sending context to Groq (Llama-3.1-8b-instant)...`);
+            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${groqApiKey}`
+              },
+              body: JSON.stringify({
+                model: "llama-3.1-8b-instant",
+                messages: [
+                  { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.1
+              })
+            });
+
+            if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(`Groq API Error (${response.status}): ${errText}`);
+            }
+
+            const data = await response.json();
+            advice = data.choices[0].message.content.trim();
           } else {
-            r = h.speaker === 0 ? "Rep" : "Customer";
+            console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: fullPrompt,
+            });
+            advice = response.text.trim();
           }
-          return `[${r}]: ${h.text}`;
-        }).join("\n");
-        
-        const fullPrompt = `${salesCoachSystemPrompt}\n\n=== RECENT CONVERSATION ===\n${formattedHistory}\n\nBased on the Customer's latest response, what is your tactical advice for the Rep?`;
 
-        console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: fullPrompt,
-        });
-
-        const advice = response.text.trim();
-        console.log(`[AI Response]:\n${advice}`);
-        
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ 
-            type: "ai_suggestion", 
-            data: { text: advice, timestamp: Date.now() } 
-          }));
+          console.log(`[AI Response]:\n${advice}`);
+          
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ 
+              type: "ai_suggestion", 
+              data: { text: advice, timestamp: Date.now() } 
+            }));
+          }
+        } catch (err) {
+          console.error("AI Generation Error:", err);
         }
-      } catch (err) {
-        console.error("Gemini API Error:", err);
       }
     }
   });
