@@ -1,5 +1,10 @@
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import { pipeline, env } from '@xenova/transformers';
+
+// Set the cache directory inside the local workspace to avoid sandbox file permission issues
+env.cacheDir = './.cache';
+env.allowLocalModels = false;
 
 // Standard playbooks for contextual guidelines
 const PLAYBOOKS = {
@@ -39,6 +44,20 @@ const CATEGORY_MAP = {
   OBJ_AFFILIATION: "Objection: Degree Affiliation / Accreditation"
 };
 
+// Playbook & Business keywords to bypass zero-shot checking instantly
+const SALES_KEYWORDS = new Set([
+  'fee', 'fees', 'pricing', 'cost', 'payment', 'isa', 'income share', 
+  'installment', 'emi', 'loan', 'scholarship', 'scholarships', 'refund', 'placement', 
+  'placements', 'package', 'job', 'jobs', 'hire', 'hiring', 'salary', 'lpa', 'ctc', 'career', 
+  'degree', 'university', 'affiliation', 'ugc', 'accredited', 'rishihood',
+  'integration', 'security', 'timeline', 'objection', 'competitor', 'competitors',
+  'salesforce', 'hubspot', 'zoho', 'demo', 'trial', 'api', 'contract', 'price',
+  'masai', 'scaler', 'upgrad', 'simplilearn', 'book', 'connect', 'schedule', 'call', 
+  'meet', 'meeting', 'test', 'aptitude', 'enroll', 'register', 'calendar', 'tuesday', 
+  'monday', 'wednesday', 'thursday', 'friday', 'next week', 'course', 'curriculum', 
+  'syllabus', 'classes', 'class', 'learn', 'learning', 'program'
+]);
+
 // Common fillers & agreement words for gatekeeper exit
 const FILLER_WORDS = new Set([
   'yeah', 'yes', 'ok', 'okay', 'no', 'yep', 'yup', 'nope', 'cool', 'sure', 
@@ -49,14 +68,57 @@ const FILLER_WORDS = new Set([
 export class EventDetector extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.ollamaUrl = options.ollamaUrl || 'http://localhost:11434';
-    this.modelName = options.modelName || 'llama3.1:8b';
     this.playbook = options.playbook || 'saas';
     this.contextWindowSize = options.contextWindowSize || 5;
-    this.fallbackToCloud = options.fallbackToCloud !== false;
-    
     this.groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
-    this.geminiApiKey = options.geminiApiKey || process.env.GEMINI_API_KEY;
+
+    // Asynchronously initialize the zero-shot classifier pipeline
+    this.zeroShotPipelinePromise = null;
+    this.initClassifier().catch(() => {});
+
+    // Preserved config options for local testing (friend's config)
+    // this.ollamaUrl = options.ollamaUrl || 'http://localhost:11434';
+    // this.modelName = options.modelName || 'gemma4:e4b'; // 'llama3.1:8b';
+  }
+
+  async initClassifier() {
+    if (!this.zeroShotPipelinePromise) {
+      console.log("[EventDetector] Initializing local Zero-Shot Classifier (Xenova/nli-deberta-v3-small)...");
+      this.zeroShotPipelinePromise = pipeline('zero-shot-classification', 'Xenova/nli-deberta-v3-small').catch(err => {
+        console.error("[EventDetector] Failed to load local Zero-Shot Classifier:", err.message);
+        this.zeroShotPipelinePromise = null;
+        throw err;
+      });
+    }
+    return this.zeroShotPipelinePromise;
+  }
+
+  hasSalesKeyword(text) {
+    if (!text) return false;
+    const lowerText = text.toLowerCase();
+    return Array.from(SALES_KEYWORDS).some(kw => lowerText.includes(kw));
+  }
+
+  async isZeroShotSmallTalk(text) {
+    try {
+      const classifier = await this.initClassifier();
+      if (!classifier) return false;
+
+      const candidateLabels = [
+        'small talk or pleasantry or greeting',
+        'sales course admission inquiry or objection'
+      ];
+      
+      const result = await classifier(text, candidateLabels);
+      const smallTalkIndex = result.labels.indexOf('small talk or pleasantry or greeting');
+      const score = result.scores[smallTalkIndex];
+      
+      console.log(`[EventDetector] Zero-Shot check for "${text}": Small Talk Score = ${(score * 100).toFixed(1)}%`);
+      return score >= 0.70;
+    } catch (e) {
+      console.error("[EventDetector] Local Zero-Shot classification error:", e.message);
+      return false;
+    }
   }
 
   // Early-exit check for low-value / short utterances (runs in 0ms)
@@ -103,117 +165,15 @@ export class EventDetector extends EventEmitter {
     return false;
   }
 
-  // Fast-path Regex matching (runs in <5ms)
-  runRegexRules(text) {
-    const intents = [];
-    const lowerText = text.toLowerCase();
-
-    if (this.playbook === 'newtonschool') {
-      // 1. Competitor Detection (Newton School context)
-      const competitorMatch = text.match(/(masai|scaler|coding ninjas|upgrad|great learning|simplilearn)/i);
-      if (competitorMatch) {
-        intents.push({
-          cat: "COMPETITOR",
-          conf: 1.0,
-          entity: competitorMatch[0]
-        });
-      }
-
-      // 2. Fees & ISA Objection
-      if (lowerText.match(/(fee|fees|pricing|cost|payment|isa|income share|installment|emi|loan|scholarship|refund)/i)) {
-        intents.push({
-          cat: "OBJ_ISA_FEES",
-          conf: 0.95,
-          entity: null
-        });
-      }
-
-      // 3. Placement Objection
-      if (lowerText.match(/(placement|package|job|hire|hiring|salary|lpa|ctc|placement cells|career|pharmacy|govt)/i)) {
-        intents.push({
-          cat: "OBJ_PLACEMENT",
-          conf: 0.95,
-          entity: null
-        });
-      }
-
-      // 4. Affiliation Objection
-      if (lowerText.match(/(ugc|affiliation|degree|university|recognition|accredited|rishihood)/i)) {
-        intents.push({
-          cat: "OBJ_AFFILIATION",
-          conf: 0.95,
-          entity: null
-        });
-      }
-    } else {
-      // Standard SaaS Playbook Regex
-      // 1. Competitor Detection
-      const competitorMatch = text.match(/(salesforce|hubspot|zoho|freshsales|exotel|cluel(y|ie))/i);
-      if (competitorMatch) {
-        intents.push({
-          cat: "COMPETITOR",
-          conf: 1.0,
-          entity: competitorMatch[0]
-        });
-      }
-
-      // 2. Budget Objection Detection
-      if (lowerText.match(/(price|pricing|cost|expensive|cheap|charge|budget|billing|premium|discount|dollar|money|pay)/i)) {
-        intents.push({
-          cat: "OBJ_BUDGET",
-          conf: 0.9,
-          entity: null
-        });
-      }
-
-      // 3. Timeline Objection Detection
-      if (lowerText.match(/(timeline|onboard|deploy|implement|schedule|deadline|how long|weeks|months)/i)) {
-        intents.push({
-          cat: "OBJ_TIMELINE",
-          conf: 0.9,
-          entity: null
-        });
-      }
-
-      // 4. Buying Signal Detection
-      if (lowerText.match(/(sign|contract|buy|purchase|procure|compliant|compliance|security|soc2|demo|trial)/i)) {
-        intents.push({
-          cat: "SIGNAL_BUY",
-          conf: 0.85,
-          entity: null
-        });
-      }
-    }
-
-    return intents;
-  }
-
-  // Merges and deduplicates rules-based and cognitive model-based intents
-  mergeIntents(regexIntents, llmIntents) {
-    const merged = new Map();
-
-    // Load regex intents (they are rule-based so high confidence/high priority)
-    for (const item of regexIntents) {
-      merged.set(item.cat, item);
-    }
-
-    // Override or add LLM intents (except if regex is already 1.0 confidence)
-    for (const item of llmIntents) {
-      if (item.cat === "NONE") continue;
-      
-      const existing = merged.get(item.cat);
-      if (!existing || (existing.conf < 1.0 && item.conf > existing.conf)) {
-        merged.set(item.cat, item);
-      }
-    }
-
-    return Array.from(merged.values());
+  // Filters out neutral or NONE classifications
+  mergeIntents(llmIntents) {
+    return llmIntents.filter(item => item.cat !== "NONE");
   }
 
   // Construct the system prompt for the 8B parameter model
   getSystemPrompt() {
     const chosenPlaybook = PLAYBOOKS[this.playbook] || PLAYBOOKS.general;
-    return `You are a high-performance sales conversation router. Your task is to analyze the customer's utterance in a sales call and classify the underlying sales intent or objection.
+    return `You are a high-performance sales conversation router. Your task is to analyze the speaker's utterance (Rep or Customer) in a sales call and classify the underlying sales intent, objection, or proactive topic transition.
 
 Configured Playbook: "${chosenPlaybook.name}"
 Playbook Focus Guidelines: ${chosenPlaybook.guidelines}
@@ -223,12 +183,12 @@ Classification Schema ("cat" code):
 - OBJ_TIMELINE: Concerns about lack of developer resource, implementation timeline, onboarding speed, launch delay (SaaS / general).
 - OBJ_SWITCHING: Friction of migrating from a current provider or vendor lock-in contracts.
 - COMPETITOR: Mention of competitor platforms (Salesforce, HubSpot, Masai School, Scaler, etc.).
-- SIGNAL_BUY: Asks for next steps, contracting, compliance/security docs, pricing sheets, pilot/demo, free aptitude scholarship test.
+- SIGNAL_BUY: Asks for next steps, contracting, compliance/security docs, pricing sheets, pilot/demo, free aptitude scholarship test, or explicitly agreeing (e.g. saying "yeah", "yes", "sure") to a Rep's direct proposal to schedule a call, take a test, or book a counseling session.
 - INQUIRY: Standard complex product, course, or curriculum questions. Do not use for simple greetings or checking if this is Newton School.
 - OBJ_ISA_FEES: Objections about course fees, registration fee, Income Share Agreement (ISA) terms, loan EMIs, or scholarship eligibility (Newton School context).
 - OBJ_PLACEMENT: Concerns or questions about job placement assistance, CTC packages, LPA expectations, career cells, hiring partner network (Newton School context).
 - OBJ_AFFILIATION: Concerns or questions about B.Tech degree credibility, UGC approval status, Rishihood University degree affiliation, or course certifications (Newton School context).
-- NONE: Agreement sounds, small talk, general confirmation, simple greetings, or basic identification/neutral checks (e.g., "is this Newton School of Technology?", "hello", "who is this?", confirming name/location).
+- NONE: Agreement sounds / backchanneling when the Rep is speaking, general small talk, general confirmation, simple greetings, or basic identification/neutral checks (e.g., confirming name/location, "hello", "who is this?").
 
 You MUST respond with a valid JSON object strictly adhering to this compressed format:
 {
@@ -243,7 +203,8 @@ You MUST respond with a valid JSON object strictly adhering to this compressed f
 
 Ensure:
 1. Short output generation. Keep intents array to only active categories.
-2. Return ONLY JSON. Do not include markdown formatting or explanation outside JSON.`;
+2. Return ONLY JSON. Do not include markdown formatting or explanation outside JSON.
+3. For the "entity" field, extract the specific subject name from the text (e.g., if category is COMPETITOR, extract the specific name of the competitor mentioned, even if not listed in the examples. If no specific entity name is mentioned, return null).`;
   }
 
   // Formats conversation history sliding window for context resolution
@@ -275,69 +236,114 @@ Ensure:
       timestamp
     });
 
-    // If it's the Rep speaking, we do not perform intent classification (only Customer statements trigger copilot cues)
-    if (!isCustomer) {
-      return makeEvent([]);
+    // Find the last Rep utterance in history to see if it was a question
+    let lastRepUtterance = null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].speaker === 0) { // Speaker 0 is Rep
+        lastRepUtterance = history[i].text;
+        break;
+      }
     }
 
-    // 1. GATEKEEPER CHECK: Early exit on filler text (0ms latency)
-    if (this.isFillerUtterance(utterance.text)) {
+    let isRespondingToQuestion = false;
+    if (lastRepUtterance) {
+      const cleanRepText = lastRepUtterance.trim();
+      isRespondingToQuestion = cleanRepText.endsWith('?') || 
+                               /\b(would|should|could|can|do|does|did|is|are|shall|will|how|what|why|where|who)\b.*\b(you|we|i|it|this|that|go|like|want|start|book|take|proceed)\b/i.test(cleanRepText);
+    }
+
+    // 1. GATEKEEPER CHECK: Early exit on filler text (0ms latency), unless responding to a Rep question
+    if (this.isFillerUtterance(utterance.text) && !isRespondingToQuestion) {
       console.log(`[EventDetector] Early exit (0ms) on filler text: "${utterance.text}"`);
-      const event = makeEvent([]);
-      this.emit('event', { ...event, isReflex: true, source: 'gatekeeper' });
+      const event = { ...makeEvent([]), source: 'gatekeeper' };
+      this.emit('event', { ...event, isReflex: true });
       return event;
     }
 
     // 1.5. NEUTRAL/GREETING CHECK: Early exit on greeting/identification questions (0ms latency)
     if (this.isNeutralOrGreeting(utterance.text)) {
       console.log(`[EventDetector] Early exit (0ms) on neutral/greeting check: "${utterance.text}"`);
-      const event = makeEvent([]);
-      this.emit('event', { ...event, isReflex: true, source: 'neutral_filter' });
+      const event = { ...makeEvent([]), source: 'neutral_filter' };
+      this.emit('event', { ...event, isReflex: true });
       return event;
     }
 
-    // 2. REFLEX ROUTER CHECK: Instant regex rules match (<5ms latency)
-    const regexIntents = this.runRegexRules(utterance.text);
-    if (regexIntents.length > 0) {
-      const reflexEvent = makeEvent(regexIntents);
-      console.log(`[EventDetector] Instant Regex Match (<5ms):`, regexIntents);
-      this.emit('event', { ...reflexEvent, isReflex: true, source: 'regex' });
-      // Keep going to let LLM check details/other intents in background, but we emit reflex immediately!
-    }
-
-    // 3. COGNITIVE ROUTER (8B Model)
-    // Run Ollama (or Cloud fallback) in parallel/background
-    let llmIntents = [];
-    const promptContext = this.formatContext(history, utterance);
-
-    try {
-      llmIntents = await this.queryOllama(promptContext);
-    } catch (ollamaErr) {
-      console.warn(`[EventDetector] Local Ollama failed or unreachable. FallbackToCloud enabled: ${this.fallbackToCloud}`, ollamaErr.message);
-      if (this.fallbackToCloud) {
-        try {
-          llmIntents = await this.queryCloudFallback(promptContext);
-        } catch (cloudErr) {
-          console.error(`[EventDetector] Cloud fallbacks also failed:`, cloudErr.message);
-        }
+    // 1.7. LOCAL ZERO-SHOT CHECK: Early exit on complex small talk
+    if (!isRespondingToQuestion && !this.hasSalesKeyword(utterance.text)) {
+      console.log(`[EventDetector] Running local Zero-Shot Classifier check...`);
+      const isSmallTalk = await this.isZeroShotSmallTalk(utterance.text);
+      if (isSmallTalk) {
+        console.log(`[EventDetector] Early exit (local zero-shot) on small talk: "${utterance.text}"`);
+        const event = { ...makeEvent([]), source: 'local_zeroshot' };
+        this.emit('event', { ...event, isReflex: true });
+        return event;
       }
     }
 
-    // Merge and deduplicate reflex and cognitive intents
-    const finalizedIntents = this.mergeIntents(regexIntents, llmIntents);
-    const finalizedEvent = makeEvent(finalizedIntents);
+    // 2. COGNITIVE ROUTER (Groq Llama 3.1 8B)
+    let llmIntents = [];
+    const promptContext = this.formatContext(history, utterance);
 
-    this.emit('event', { ...finalizedEvent, isReflex: false, source: 'cognitive' });
+    if (this.groqApiKey && this.groqApiKey !== "placeholder") {
+      try {
+        console.log(`[EventDetector] Routing classification query to Groq (Llama 3.1 8B)...`);
+        llmIntents = await this.queryGroq(promptContext);
+      } catch (err) {
+        console.error(`[EventDetector] Groq classification failed:`, err.message);
+      }
+    } else {
+      console.warn(`[EventDetector] Groq API Key is not set or placeholder.`);
+    }
+
+    // Filter neutral intents
+    const finalizedIntents = this.mergeIntents(llmIntents);
+    const finalizedEvent = { ...makeEvent(finalizedIntents), source: 'cognitive' };
+
+    this.emit('event', { ...finalizedEvent, isReflex: false });
     return finalizedEvent;
   }
 
-  // Local Ollama API call
+  // Query Groq Llama-3.1-8b-instant
+  async queryGroq(contextText) {
+    const systemPrompt = this.getSystemPrompt();
+
+    if (!this.groqApiKey || this.groqApiKey === "placeholder") {
+      throw new Error("Groq API key not configured.");
+    }
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.groqApiKey}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Analyze context:\n\n${contextText}` }
+        ],
+        temperature: 0.0,
+        max_tokens: 256,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      throw new Error(`Groq API returned status ${response.status}: ${errBody}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    return this.parseJSONIntents(content);
+  }
+
+  /* Preserved local Ollama & Gemini fallbacks for reference:
   async queryOllama(contextText) {
     const systemPrompt = this.getSystemPrompt();
     const url = `${this.ollamaUrl}/api/chat`;
-
     console.log(`[EventDetector] Querying Local Ollama (${this.modelName})...`);
-    
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -345,93 +351,33 @@ Ensure:
         model: this.modelName,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analyze this conversational context and output structured JSON intents:\n\n${contextText}` }
+          { role: 'user', content: `Analyze context:\n\n${contextText}` }
         ],
         stream: false,
         format: 'json',
-        options: {
-          temperature: 0.0,
-          num_predict: 150 // safe headroom limit to prevent JSON truncation
-        }
+        options: { temperature: 0.0, num_predict: 1024 }
       })
     });
-
-    if (!response.ok) {
-      throw new Error(`Ollama server returned status ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Ollama status ${response.status}`);
     const data = await response.json();
-    const content = data.message?.content || "";
-    return this.parseJSONIntents(content);
+    return this.parseJSONIntents(data.message?.content || "");
   }
 
-  // Cloud API Fallback Router (Groq or Gemini)
-  async queryCloudFallback(contextText) {
+  async queryGemini(contextText) {
     const systemPrompt = this.getSystemPrompt();
-
-    // 1. Try Groq Llama-3.1-8b-instant if key exists
-    if (this.groqApiKey && this.groqApiKey !== "placeholder") {
-      console.log(`[EventDetector] Fallback: Querying Groq (Llama-3.1-8b-instant)...`);
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.groqApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Analyze context:\n\n${contextText}` }
-          ],
-          temperature: 0.0,
-          max_tokens: 50,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content || "";
-        return this.parseJSONIntents(content);
-      } else {
-        console.warn(`[EventDetector] Groq fallback failed with status ${response.status}`);
-      }
-    }
-
-    // 2. Try Gemini fallback if key exists
-    if (this.geminiApiKey && this.geminiApiKey !== "placeholder") {
-      console.log(`[EventDetector] Fallback: Querying Gemini API (gemini-2.5-flash)...`);
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: `${systemPrompt}\n\nAnalyze this conversation:\n\n${contextText}` }]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.0,
-            maxOutputTokens: 60
-          }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return this.parseJSONIntents(content);
-      } else {
-        console.warn(`[EventDetector] Gemini fallback failed with status ${response.status}`);
-      }
-    }
-
-    throw new Error("No active cloud keys available or all APIs failed.");
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nAnalyze this:\n\n${contextText}` }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.0, maxOutputTokens: 256, thinkingConfig: { thinkingBudget: 0 } }
+      })
+    });
+    if (!response.ok) throw new Error(`Gemini status ${response.status}`);
+    const data = await response.json();
+    return this.parseJSONIntents(data.candidates?.[0]?.content?.parts?.[0]?.text || "");
   }
+  */
 
   // Safe parsing helper
   parseJSONIntents(jsonString) {

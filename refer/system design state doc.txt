@@ -8,10 +8,9 @@ Local Mic + Shared Tab Audio -> Browser Web Audio Mixer (Stereo Merger) -> STT P
 Key Prototype Milestones Completed:
   - Premium Cluely-style React 19 Frontend with canvas level meter visualizer and interactive checklist.
   - Multi-channel stereo mixing (mic in Left channel, tab loopback audio in Right channel) providing 100% accurate speaker separation.
-  - Dynamic playbook selection parameterizing the STT proxy with distinct prompt guidelines, specifically customized with the "Newton School Bangalore" admissions manual.
-  - Hybrid Event Detector (services/event-detector) implementing 0ms early exit gatekeepers (filler filters, neutral greeting filter) and regex rules alongside a local Llama 3.1 8B parameter model (Ollama) or cloud fallback.
+  - Cognitive-First Event Detector (services/event-detector) implementing local 0ms/20ms early-exit gatekeepers (filler filters, neutral greeting filter, and local Zero-Shot nli-deberta-v3-small classification for complex pleasantries) and Groq Llama 3.1 8B classification with dynamic entity parsing, removing the legacy regex rules and reflex lane to prevent UI flickering.
   - Single tactical suggested response phrasings in direct (Say: "...") format, replacing legacy "Soft" vs "Bold" variations.
-  - Clean vertical timeline queue (no card boxes or background panels) for displaying incoming cues one-by-one.
+  - Clean vertical timeline queue (no card boxes or background panels) for displaying incoming cues one-by-one, with auto-scroll and card persistence on customer filler words.
   - Jaccard similarity word overlap deduplicator in the React UI to prevent duplicate suggestions and alert fatigue.
   - Real-Time Visual/Audio Cue Alerts synthesizing a clean 880Hz electronic sound chime via Web Audio API, and a custom CSS keyframe glow animation.
 ***********************************

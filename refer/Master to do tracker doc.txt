@@ -110,12 +110,14 @@ Status:
 Tasks:
 	•	🟢 Simple STT Proxy & WebSocket
 	•	🟢 Transcript Aggregator
-	•	🟢 Direct LLM Integration (Gemini 2.5 Flash)
+	•	🟢 Groq Dual-LLM Pipeline (Llama 3.1 8B Tier 1, Llama 3.3 70B Tier 2)
 	•	🟢 Legacy SonicScribe Test Harness UI
 	•	🟢 Premium Dynamic Frontend UI (React/Vanilla CSS)
 	•	🟢 Hardware Stereo Separation (Local Mic + Tab Audio mixing)
-	•	🟢 Dynamic Playbook Selection (B2B SaaS, Insurance, Real Estate, General)
-	•	🟢 Multi-Style Suggested Phrasings (Soft vs Bold options)
+	•	🟢 Dynamic Playbook Selection (B2B SaaS, Insurance, Real Estate, Newton School Admissions)
+	•	🟢 Single Direct suggested respond phrasing (Say: "...")
+	•	🟢 Cognitive-First Event Detector (Removed regex rules & reflex UI popups)
+	•	🟢 Local Zero-Shot Small Talk Gatekeeper (nli-deberta-v3-small, 20ms, $0 cost)
 	•	🟢 Real-Time Visual/Audio Cue Alerts (Web Audio chime & panel glow pulse)
 
 Phase 5 - MVP Build (Future Full Architecture)

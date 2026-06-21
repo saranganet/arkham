@@ -2,7 +2,6 @@ import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
 import { DeepgramClient } from "@deepgram/sdk";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -28,12 +27,9 @@ app.use(express.static(path.join(__dirname, "public")));
 if (!process.env.DEEPGRAM_API_KEY) {
   console.warn("WARNING: DEEPGRAM_API_KEY is not defined.");
 }
-if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
-  console.warn("WARNING: Neither GEMINI_API_KEY nor GROQ_API_KEY is defined. AI suggestions will fail.");
+if (!process.env.GROQ_API_KEY) {
+  console.warn("WARNING: GROQ_API_KEY is not defined. AI suggestions will fail.");
 }
-
-// Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "placeholder" });
 
 // Playbook configurations for dynamic prompt generation
 const PLAYBOOKS = {
@@ -182,29 +178,39 @@ EXAMPLE GOOD OUTPUT:
 
     console.log(`[Role Mapping] Speaker ${utt.speaker} classified as ${currentRole} (Rep ID: ${repSpeakerId ?? 0})`);
 
-    // TRIGGER AI IF IT IS THE CUSTOMER SPEAKING
-    if (currentRole === "Customer") {
-      const groqApiKey = process.env.GROQ_API_KEY;
-      const geminiApiKey = process.env.GEMINI_API_KEY;
+    // Run EventDetector for both Customer and Rep utterances
+    const groqApiKey = process.env.GROQ_API_KEY;
 
+    if (groqApiKey && groqApiKey !== "placeholder") {
       try {
         // Run EventDetector
         const detector = new EventDetector({
-          ollamaUrl: 'http://localhost:11434',
-          modelName: 'llama3.1:8b',
           playbook: playbook,
-          fallbackToCloud: true,
-          groqApiKey,
-          geminiApiKey
+          groqApiKey
+          // Preserved options for friend's local test config:
+          // ollamaUrl: 'http://localhost:11434',
+          // modelName: 'gemma4:e4b' // 'llama3.1:8b'
         });
 
-        console.log(`[EventDetector] Running on customer utterance: "${utt.text}"`);
+        console.log(`[EventDetector] Running on ${currentRole} utterance: "${utt.text}"`);
         const detectResult = await detector.detect(utt, conversationHistory, currentRole === "Customer");
         console.log(`[EventDetector] Detected Intents:`, JSON.stringify(detectResult.intents));
 
-        // 1. GATEKEEPER CHECK: Early exit on NONE / no active intents
+        // 1. GATEKEEPER / NONE CHECK: Early exit on NONE / no active intents
         if (detectResult.intents.length === 0) {
-          console.log(`[EventDetector] Gatekeeper: early exit (0ms). Sending keep-going signal.`);
+          // If it was the Rep speaking, we do absolutely nothing (no screen clear)
+          if (currentRole === "Rep") {
+            return;
+          }
+
+          // If Customer said a filler/agreement word, do NOT clear active screen cards
+          if (detectResult.source === 'gatekeeper') {
+            console.log(`[EventDetector] Customer filler word detected. Keeping current cards on screen.`);
+            return;
+          }
+
+          // If Customer said a full neutral statement, clear the screen
+          console.log(`[EventDetector] Customer neutral statement detected. Sending keep-going signal.`);
           if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ 
               type: "ai_suggestion", 
@@ -214,96 +220,68 @@ EXAMPLE GOOD OUTPUT:
           return;
         }
 
-        // 2. REFLEX ROUTER CHECK: Instant pre-defined responses (Disabled per user request to keep reflex lane closed)
-        /*
-        const reflexAdvice = getReflexSuggestion(detectResult.intents, playbook);
-        if (reflexAdvice) {
-          console.log(`[EventDetector] Reflex route matched. Sending instant suggestions:`, reflexAdvice);
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ 
-              type: "ai_suggestion", 
-              data: { text: reflexAdvice, timestamp: Date.now() } 
-            }));
-          }
-          return; // Skip LLM call entirely
-        }
-        */
+        // 2. COGNITIVE ROUTER: Intent-focused suggestion generation
+        // Format the history dynamically so retrospective role changes apply to the whole context
+        const formattedHistory = conversationHistory.map(h => {
+          const isRepSpeaker = repSpeakerId !== null 
+            ? String(h.speaker) === String(repSpeakerId) 
+            : String(h.speaker) === "0";
+          return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
+        }).join("\n");
+        
+        const activeIntentCategories = detectResult.intents.map(i => `${i.cat}${i.entity ? ` (${i.entity})` : ''}`).join(", ");
+        
+        // Tailor fullPrompt instructions depending on speaker role
+        const roleInstruction = currentRole === "Rep"
+          ? `The Rep has proactively brought up the topic: ${activeIntentCategories}. Based on the playbook guidelines, generate the relevant details/cues for the Rep to display on their screen.`
+          : `Based on the Customer's latest response and active intents, what is your tactical advice for the Rep?`;
 
-        // 3. COGNITIVE ROUTER: Intent-focused suggestion generation
-        if ((groqApiKey && groqApiKey !== "placeholder") || (geminiApiKey && geminiApiKey !== "placeholder")) {
-          // Format the history dynamically so retrospective role changes apply to the whole context
-          const formattedHistory = conversationHistory.map(h => {
-            const isRepSpeaker = repSpeakerId !== null 
-              ? String(h.speaker) === String(repSpeakerId) 
-              : String(h.speaker) === "0";
-            return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
-          }).join("\n");
-          
-          const activeIntentCategories = detectResult.intents.map(i => `${i.cat}${i.entity ? ` (${i.entity})` : ''}`).join(", ");
-          
-          const fullPrompt = `${salesCoachSystemPrompt}
-          
+        const fullPrompt = `${salesCoachSystemPrompt}
+        
 === RECENT CONVERSATION ===
 ${formattedHistory}
 
-[DETECTED CUSTOMER INTENTS]: ${activeIntentCategories}
-Based on the Customer's latest response and active intents, what is your tactical advice for the Rep?`;
+[ACTIVE CONVERSATION TOPIC/INTENT]: ${activeIntentCategories}
+${roleInstruction}`;
 
-          let advice = "";
+        let advice = "";
 
-          if (groqApiKey && groqApiKey !== "placeholder") {
-            try {
-              console.log(`[AI Triggered] Sending context to Groq (Llama-3.1-8b-instant)...`);
-              const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${groqApiKey}`
-                },
-                body: JSON.stringify({
-                  model: "llama-3.1-8b-instant",
-                  messages: [
-                    { role: "user", content: fullPrompt }
-                  ],
-                  temperature: 0.1
-                })
-              });
+        try {
+          console.log(`[AI Triggered] Sending context to Groq (Llama-3.3-70b-specdec)...`);
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqApiKey}`
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-specdec",
+              messages: [
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1
+            })
+          });
 
-              if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`Groq API Error (${response.status}): ${errText}`);
-              }
-
-              const data = await response.json();
-              advice = data.choices[0].message.content.trim();
-              console.log(`[AI Response] Successfully generated suggestions using Groq.`);
-            } catch (groqErr) {
-              console.warn(`[AI Triggered] Groq call failed. Falling back to Gemini. Error:`, groqErr.message);
-            }
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Groq API Error (${response.status}): ${errText}`);
           }
 
-          if (!advice && geminiApiKey && geminiApiKey !== "placeholder") {
-            try {
-              console.log(`[AI Triggered] Sending context to Gemini 2.5 Flash...`);
-              const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: fullPrompt,
-              });
-              advice = response.text.trim();
-              console.log(`[AI Response] Successfully generated suggestions using Gemini.`);
-            } catch (geminiErr) {
-              console.error(`[AI Triggered] Gemini fallback also failed:`, geminiErr.message);
-            }
-          }
+          const data = await response.json();
+          advice = data.choices[0].message.content.trim();
+          console.log(`[AI Response] Successfully generated suggestions using Groq Llama 3.3 70B.`);
+        } catch (groqErr) {
+          console.error(`[AI Triggered] Groq call failed:`, groqErr.message);
+        }
 
-          console.log(`[AI Response]:\n${advice}`);
-          
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ 
-              type: "ai_suggestion", 
-              data: { text: advice, timestamp: Date.now() } 
-            }));
-          }
+        console.log(`[AI Response]:\n${advice}`);
+        
+        if (advice && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ 
+            type: "ai_suggestion", 
+            data: { text: advice, timestamp: Date.now() } 
+          }));
         }
       } catch (err) {
         console.error("Pipeline Error:", err);

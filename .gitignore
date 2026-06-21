@@ -3,3 +3,6 @@ node_modules/
 
 # Local Environment Credentials (Contains private API keys)
 .env
+
+# Model Cache
+.cache/
