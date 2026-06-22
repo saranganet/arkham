@@ -71,6 +71,94 @@ Do not write long text blocks. Output concise pointers, exact numbers (e.g., 1.8
   }
 };
 
+// Mapped playbook guidelines for LLM 2 prompt minimization
+const PLAYBOOK_FACTS = {
+  newtonschool: {
+    OBJ_ISA_FEES: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
+    OBJ_PLACEMENT: "- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School). Placements: CTC packages 25 LPA+; MNCs: Amazon, Flipkart, Meesho, IBM.",
+    OBJ_AFFILIATION: "- Degree Affiliation: cs & ai B.Tech is fully UGC-accredited via Rishihood University degree affiliation.",
+    COMPETITOR: "- Competitor Objections (Simplilearn/Intellipaat/Cheaper 60k course): Highlight instructor quality (Google/Amazon experts), lifetime placement support (Subhadip Das case), and company-specific grooming sessions before interview rounds. If competitor is expensive, compare USPs directly to show value. If competitor is aligned, connect with similar alum for trust.",
+    SIGNAL_BUY: "- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).",
+    INQUIRY: "- Base Pitch & Curriculum: Excel, SQL, Python, ML. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). MWF 9 pm - 11 pm live classes. Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories."
+  },
+  saas: {
+    OBJ_BUDGET: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
+    OBJ_TIMELINE: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
+    OBJ_SWITCHING: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
+    COMPETITOR: "- Competitor Objections: Salesforce (takes 6 months, cost double; we go live in 2 weeks), HubSpot (user-friendly but custom object limits scale block), Zoho (highly custom but setup friction).",
+    SIGNAL_BUY: "- Next Steps: Book a 15-minute setup call next Tuesday to configure your workspace sandbox."
+  },
+  insurance: {
+    OBJ_BUDGET: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability. Bundling discounts (auto + home + life).",
+    OBJ_SWITCHING: "- Switching Friction: Effortless switching assistance. Highlight the cost of being underinsured.",
+    SIGNAL_BUY: "- Next Steps: Free quote review or schedule a follow-up call."
+  },
+  realestate: {
+    OBJ_BUDGET: "- Budget/Pricing: Marry the house and refinance the rate later. Secure the property price today. Address interest rate anxiety.",
+    OBJ_TIMELINE: "- Timeline/Fit: Highlight localized neighborhood growth trends, neighborhood fit, inspection findings, appreciation."
+  }
+};
+
+// Mappings retrieval helper
+function getRelevantPlaybookFacts(playbook, intents) {
+  const facts = [];
+  const pFacts = PLAYBOOK_FACTS[playbook] || {};
+  
+  for (const intent of intents) {
+    if (pFacts[intent.cat]) {
+      facts.push(pFacts[intent.cat]);
+    }
+  }
+  
+  // If no specific fact maps, fallback to general guidelines
+  if (facts.length === 0) {
+    return PLAYBOOKS[playbook]?.guidelines || PLAYBOOKS.general.guidelines;
+  }
+  
+  return facts.join("\n");
+}
+
+async function fetchTavilySearch(query) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey || apiKey === "placeholder") {
+    console.warn("[Tavily] TAVILY_API_KEY is not set or placeholder. Skipping web search.");
+    return null;
+  }
+  
+  try {
+    console.log(`[Tavily] Executing search query: "${query}"...`);
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: 'basic',
+        max_results: 2
+      })
+    });
+    
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      console.error(`[Tavily] API returned status ${response.status}: ${errText}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    if (data && Array.isArray(data.results)) {
+      const snippets = data.results.map(r => `Source: ${r.title} (${r.url})\nContent: ${r.content}`).join("\n\n");
+      return snippets;
+    }
+  } catch (err) {
+    console.error(`[Tavily] Request failed:`, err.message);
+  }
+  return null;
+}
+
+
+
 const REFLEX_SUGGESTIONS = {
   COMPETITOR: {
     hubspot: '• Pitch HubSpot battlecard pointers (Soft: "HubSpot is very user-friendly, but custom object limits can block sales scaling." | Bold: "HubSpot limits API calls and custom objects in their standard plans. Let\'s verify your technical requirements.")',
@@ -230,13 +318,46 @@ EXAMPLE GOOD OUTPUT:
         }).join("\n");
         
         const activeIntentCategories = detectResult.intents.map(i => `${i.cat}${i.entity ? ` (${i.entity})` : ''}`).join(", ");
+
+        // Step A: Retrieve only relevant playbook guidelines
+        const mappedFacts = getRelevantPlaybookFacts(playbook, detectResult.intents);
+
+        // Step B: Query Tavily Web Search if an unknown competitor or unknown entity is mentioned
+        let searchSnippet = "";
+        for (const intent of detectResult.intents) {
+          if (intent.cat === "COMPETITOR" && intent.entity) {
+            const compName = intent.entity.toLowerCase();
+            const isStaticComp = compName.includes("salesforce") || compName.includes("hubspot") || compName.includes("zoho") || compName.includes("masai") || compName.includes("scaler");
+            if (!isStaticComp) {
+              const query = `${intent.entity} competitor pricing reviews curriculum vs ${playbook === 'newtonschool' ? 'Newton School' : 'our product'}`;
+              const searchResults = await fetchTavilySearch(query);
+              if (searchResults) {
+                searchSnippet += `\n\n[Real-time Web Search Results for ${intent.entity}]:\n${searchResults}`;
+              }
+            }
+          }
+        }
+
+        const combinedFacts = `${mappedFacts}${searchSnippet}`;
         
         // Tailor fullPrompt instructions depending on speaker role
         const roleInstruction = currentRole === "Rep"
           ? `The Rep has proactively brought up the topic: ${activeIntentCategories}. Based on the playbook guidelines, generate the relevant details/cues for the Rep to display on their screen.`
           : `Based on the Customer's latest response and active intents, what is your tactical advice for the Rep?`;
 
-        const fullPrompt = `${salesCoachSystemPrompt}
+        const tailoredPlaybookPrompt = `You are an elite AI Sales Copilot listening to a live sales call, configured for the playbook: "${chosenPlaybook.name}".
+        
+FACTUAL SALES MANUAL CUES:
+${combinedFacts}
+
+YOUR STRICT OUTPUT RULES:
+1. Output a maximum of 2 to 3 bullet points. Each bullet point must represent one clear tactical cue or answer helper.
+2. For each bullet point, provide a short tactical direction cue AND a single suggested response phrase in parentheses using the format: (Say: "your suggested response phrase"). Do NOT include "Soft" or "Bold" variations.
+3. Keep the direction cue and the suggested phrasing extremely concise. Do not include any other explanations or markdown headers.
+4. If the customer is making small talk, confirming details (like the school name "Newton School of Technology" or basic greetings), or if no active sales objection handling is needed, do NOT output any bullet points. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any formatting.
+`;
+
+        const fullPrompt = `${tailoredPlaybookPrompt}
         
 === RECENT CONVERSATION ===
 ${formattedHistory}
@@ -247,7 +368,7 @@ ${roleInstruction}`;
         let advice = "";
 
         try {
-          console.log(`[AI Triggered] Sending context to Groq (Llama-3.3-70b-specdec)...`);
+          console.log(`[AI Triggered] Sending context to Groq Llama 3.1 8B (llama-3.1-8b-instant)...`);
           const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -255,7 +376,7 @@ ${roleInstruction}`;
               "Authorization": `Bearer ${groqApiKey}`
             },
             body: JSON.stringify({
-              model: "llama-3.3-70b-specdec",
+              model: "llama-3.1-8b-instant",
               messages: [
                 { role: "user", content: fullPrompt }
               ],
@@ -270,7 +391,7 @@ ${roleInstruction}`;
 
           const data = await response.json();
           advice = data.choices[0].message.content.trim();
-          console.log(`[AI Response] Successfully generated suggestions using Groq Llama 3.3 70B.`);
+          console.log(`[AI Response] Successfully generated suggestions using Groq Llama 3.1 8B.`);
         } catch (groqErr) {
           console.error(`[AI Triggered] Groq call failed:`, groqErr.message);
         }
