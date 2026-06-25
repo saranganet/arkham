@@ -25,20 +25,18 @@ graph TD
     %% Stage 2: Symmetric Gatekeeper Funnel
     subgraph Stage 2: Local Gatekeeper Funnel
         E -->|Calculate Context| F[Check QA Context: isRespondingToQuestion?]
-        F --> G{Has Sales/Comparison Keywords?}
-        G -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
-        G -- No --> H{Is Filler Utterance?}
+        F --> H{Is Filler Utterance?}
         
         H -- Yes --> H_QA{isRespondingToQuestion?}
         H_QA -- No --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
-        H_QA -- Yes --> H_Short{Is Short Filler?}
-        
-        H_Short -- Yes --> LLM1
-        H_Short -- No --> ZeroShot[Local Zero-Shot Classifier]
+        H_QA -- Yes --> G{Has Sales/Comparison Keywords?}
         
         H -- No --> I{Is Neutral Greeting / Identification?}
         I -- Yes --> Exit1
-        I -- No --> ZeroShot
+        I -- No --> G
+        
+        G -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
+        G -- No --> ZeroShot[Local Zero-Shot Classifier]
         
         ZeroShot -->|Score >= 70% Small Talk| Exit2[Zero-Shot Exit - Keep Active UI Cards]
         ZeroShot -->|Score < 70% Small Talk| LLM1
@@ -135,7 +133,7 @@ Before sending transcripts to the NLP classifiers, raw, noisy text fragments mus
 
 ---
 
-### Stage 3: Symmetric Gatekeeper Funnel & Question-Answering Routing (~0ms–20ms)
+### Stage 3: Local Gatekeeper Funnel & Question-Answering Routing (~0ms–20ms)
 
 To minimize Groq cloud API costs and reduce response latency, the system routes the finalized text through a local gatekeeper funnel. Rep and Customer utterances are treated through the exact same processing pipeline.
 
