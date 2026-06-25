@@ -19,33 +19,34 @@ graph TD
         C -->|Multichannel Transcription JSON| B
         B -->|Speaker 0/1 Transcripts| D[Transcript Aggregator]
         D -->|Buffer & Merge Chunks| D
-        D -->|Emit Finalized Utterance| E{Speaker Role?}
+        D -->|Emit Finalized Utterance| E[Unified Processing Path]
     end
 
-    %% Stage 2: Speaker-Based Gatekeeping
+    %% Stage 2: Symmetric Gatekeeper Funnel
     subgraph Stage 2: Local Gatekeeper Funnel
-        E -->|Rep Spoke| F1[Rep Processing Path]
-        E -->|Customer Spoke| F2[Customer Processing Path]
+        E -->|Calculate Context| F[Check QA Context: isRespondingToQuestion?]
+        F --> G{Has Sales/Comparison Keywords?}
+        G -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
+        G -- No --> H{Is Filler Utterance?}
         
-        F1 -->|Check length & keywords| G1{Is Filler or Greeting?}
-        G1 -- Yes --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
-        G1 -- No --> L1[Groq Llama 3.1 8B Classifier - LLM 1]
-
-        F2 -->|Contextual Question Check| H1{Answering Rep Question?}
-        H1 -- Yes --> L1
-        H1 -- No --> H2{Has Sales/Compare Keywords?}
-        H2 -- Yes --> L1
-        H2 -- No --> G2{Is Filler or Greeting?}
+        H -- Yes --> H_QA{isRespondingToQuestion?}
+        H_QA -- No --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
+        H_QA -- Yes --> H_Short{Is Short Filler?}
         
-        G2 -- Yes --> Exit1
-        G2 -- No --> H3[Local Zero-Shot Classifier]
-        H3 -->|Score >= 70% Small Talk| Exit2[Zero-Shot Exit - Keep Active UI Cards]
-        H3 -->|Score < 70% Small Talk| L1
+        H_Short -- Yes --> LLM1
+        H_Short -- No --> ZeroShot[Local Zero-Shot Classifier]
+        
+        H -- No --> I{Is Neutral Greeting / Identification?}
+        I -- Yes --> Exit1
+        I -- No --> ZeroShot
+        
+        ZeroShot -->|Score >= 70% Small Talk| Exit2[Zero-Shot Exit - Keep Active UI Cards]
+        ZeroShot -->|Score < 70% Small Talk| LLM1
     end
 
     %% Stage 3 & 4: Classifier & early-exit
     subgraph Stage 3 & 4: Intent Classification & Early-Exit
-        L1 -->|Run Classification| L2[Filter NONE Intents]
+        LLM1 -->|Run Classification| L2[Filter NONE Intents]
         L2 --> L3{Intents Empty?}
         L3 -- Yes (Customer) --> L4[Push Clear Screen Signal]
         L3 -- Yes (Rep) --> Exit3[Exit - No screen changes]
@@ -54,7 +55,7 @@ graph TD
 
     %% Stage 5 & 6: Search & Suggestions
     subgraph Stage 5 & 6: Contextual Search & Suggestions
-        M1 --> M2{Unknown Competitor Mentioned?}
+        M1 --> M2{Unknown Entity Mentioned?}
         M2 -- Yes --> M3[Tavily Search: Pricing/Curriculum/Reviews]
         M2 -- No --> M4[Assemble Prompt Context]
         M3 --> M4
@@ -134,30 +135,35 @@ Before sending transcripts to the NLP classifiers, raw, noisy text fragments mus
 
 ---
 
-### Stage 3: Local Gatekeeper Funnel & Question-Answering Bypass (~0ms–20ms)
+### Stage 3: Symmetric Gatekeeper Funnel & Question-Answering Routing (~0ms–20ms)
 
-To minimize Groq cloud API costs and reduce response latency, the system routes the finalized text through a local gatekeeper funnel.
+To minimize Groq cloud API costs and reduce response latency, the system routes the finalized text through a local gatekeeper funnel. Rep and Customer utterances are treated through the exact same processing pipeline.
+
+The pipeline executes the gatekeeper checks in the logical execution order matching the codebase:
 
 1. **Step A: Question-Answering Context Resolution**:
-   - If the customer utters a short filler word like *"yeah"* or *"okay"*, it represents a critical buying or scheduling signal if they are answering a Rep's proposal, but is meaningless small talk if they are just backchanneling.
-   - The gatekeeper traverses backward through the sliding history to locate the last utterance of the Rep speaker (`repSpeakerId`, dynamically set by the frontend).
-   - It checks if the Rep's utterance ended with a `?` or matched question-asking grammar rules.
-   - If a question is found, `isRespondingToQuestion` is set to `true`. This overrides the filler check, allowing the answer to bypass the filter.
-     * *Code Location*: [detector.js: L246-L262](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L246-L262) inside the main `detect()` routine.
+   - The context resolver traverses history to check if the current speaker is responding to a question from the *other* speaker.
+   - For example, if the current speaker is Customer, it checks if the Rep's last utterance ended with a `?` or a question-asking grammatical pattern.
+   - If a question is found, `isRespondingToQuestion` is set to `true`.
+     * *Code Location*: [detector.js: L246-L260](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L246-L260).
 2. **Step B: Filler Check (0ms)**:
-   - If the utterance is under 4 words and contains only filler words, it exits early **unless** `isRespondingToQuestion` is `true`. Suggestions persist on the representative's screen to avoid screen flicker.
-     * *Code Location*: `isFillerUtterance` helper is defined at [detector.js: L131-L141](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L131-L141); checked at [detector.js: L263-L269](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L263-L269).
+   - Filters out short, low-content filler words (e.g. *yeah, ok, mhm, no*) under 4 words.
+   - **Bypass**: If `isRespondingToQuestion` is `true`, these filler words represent crucial decisions (agreement/disagreement) and bypass this early exit check. If `isRespondingToQuestion` is `false`, they are classified as empty chatter and exit immediately.
+     * *Code Location*: `isFillerUtterance` helper is at [detector.js: L131-L141](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L131-L141); checked at [detector.js: L262-L268](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L262-L268).
 3. **Step C: Neutral / Greeting Check (0ms)**:
-   - Evaluates if the text contains greetings or neutral identity confirmations without sales terms.
-     * *Code Location*: `isNeutralOrGreeting` helper is defined at [detector.js: L143-L172](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L143-L172); checked at [detector.js: L271-L277](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L271-L277).
+   - Filters out greetings (*"hello, good morning"*) and neutral identity confirmations (*"is this Newton School?"*) that are complete sentences but contain no sales or objection topics.
+   - **Note on Difference with Step B**: Step B filters short, non-sentence filler words (which can bypass via QA context). Step C filters complete sentence greetings and administrative identity confirmations (which do NOT bypass via QA context, because greetings do not represent decision-making inputs).
+     * *Code Location*: `isNeutralOrGreeting` helper is at [detector.js: L143-L172](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L143-L172); checked at [detector.js: L270-L276](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L270-L276).
 4. **Step D: Sales/Comparison Keyword Bypass**:
-   - The text is matched against `SALES_KEYWORDS` containing course terms (fee, pricing, ctc, placement, isa, degree, ugc, rishihood) and comparative triggers (compare, vs, alternative, competitor names like Scaler, Masai, Coding Ninjas).
-     * *Code Location*: Keyword list is at [detector.js: L47-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L47-L65); checked at [detector.js: L279-L289](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L279-L289).
+   - The text is matched against `SALES_KEYWORDS`. If any keyword matches (e.g. *fees*, *placement*, *vs*, *scaler*, *masai*), it **immediately bypasses all subsequent checks** (including zero-shot) and routes directly to Groq LLM 1.
+     * *Code Location*: Keyword list is at [detector.js: L47-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L47-L65); checked at [detector.js: L278-L300](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L278-L300).
 5. **Step E: Local Zero-Shot Classifier (20ms)**:
-   - If the text has no sales keywords and is not a response to a question, the system runs a local NLI model inside the Node process.
-   - Using `@xenova/transformers` with `Xenova/nli-deberta-v3-small` loaded in-process, it classifies the text against: `['small talk or pleasantry or greeting', 'sales course admission inquiry or objection']`.
-   - If the small talk confidence is $\ge 70\%$, the pipeline exits early (`source: 'local_zeroshot'`). The Groq API is not called.
-     * *Code Location*: Local model check is at [detector.js: L108-L128](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L108-L128) using the model loaded in `initClassifier()` at [detector.js: L90-L100](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L90-L100).
+   - If the text has no sales keywords, it runs a local NLI model inside the Node process (`Xenova/nli-deberta-v3-small`) to score it against small talk/pleasantries.
+   - **Question Response Routing**: Answering a question does not directly bypass the zero-shot classifier. Instead:
+     - If the response is a short filler word (like `"Yeah."`), it directly bypasses the zero-shot model because running NLI on single words in isolation is highly prone to misclassification.
+     - If it is a longer sentence, it is routed to the zero-shot classifier. To prevent Deberta from misclassifying context-reliant responses (like *"No, we actually use that instead."*) as small talk in isolation, the resolver prepends the preceding question context (e.g. *"Do you guys currently use Salesforce for your sales reps? No, we actually use that instead."*).
+   - If the small talk score is $\ge 70\%$, the pipeline exits early. Otherwise, it proceeds to LLM 1.
+     * *Code Location*: Local model check is at [detector.js: L108-L128](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L108-L128) using model loaded in `initClassifier()`; checked at [detector.js: L283-L299](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L283-L299).
 
 ---
 
@@ -178,7 +184,7 @@ If the local gatekeeper funnel is bypassed, the proxy server sends the conversat
    - If `detectResult.intents.length === 0`:
      - If the Rep spoke, the pipeline exits (no screen changes).
      - If the Customer spoke a full neutral statement, the server pushes a clear screen signal (`"Great job, keep going!"`) to clear stale cards. Downstream LLM 2 is skipped.
-     - *Code Location*: Exits handled in `server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L307-L330).
+     - *Code Location*: Exits handled in [server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L307-L330).
 
 ---
 
@@ -190,7 +196,7 @@ If active intents are identified, the proxy server retrieves supporting context:
    - Looks up `PLAYBOOK_FACTS` for the active playbook matching the detected intent.
      * *Code Location*: facts database is at [server.js: L75-L120](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L75-L120) and fact retrieval is at [server.js: L122-L139](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L122-L139).
 2. **Real-Time Tavily Search (Dual-Lane Hybrid Logic)**:
-   - If the intent contains `COMPETITOR` and the extracted entity is not in our static competitor playbook facts, the server queries the **Tavily Search API**.
+   - If an entity is extracted by LLM 1 but is not in our local static competitor/playbook database (e.g. *"Coding Ninjas"*, *"AlmaBetter"*), the server queries the **Tavily Search API**. This captures all **unknown entities** dynamically (not just competitors).
      * *Code Location*: Tavily API search wrapper is at [server.js: L141-L178](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L141-L178); triggered at [server.js: L348-L362](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L348-L362).
 
 ---
@@ -212,13 +218,13 @@ The aggregated guidelines, Tavily search snippets, and conversation logs are sen
 
 1. **UI Parsing & Small Talk Filtration**:
    - The React app parses the incoming suggestions, stripping out bullets and isolating the `(Say: "...")` phrase.
-     * *Code Location*: Suggestion text line parsing logic is at [App.jsx: L523-L581](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L523-L581).
+     * *Code Location*: Suggestion text line parsing logic is at [App.jsx: L538-L596](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L538-L596).
 2. **Web Audio Chime & Visual Flash**:
    - For new unique suggestions, the app synthesizes a clean **880Hz electronic chime** using the browser's Web Audio API and triggers a glowing CSS alert.
-     * *Code Location*: Oscillator sound chime synthesizer logic is at [App.jsx: L441-L464](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L441-L464).
+     * *Code Location*: Oscillator sound chime synthesizer logic is at [App.jsx: L456-L479](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L456-L479).
 3. **Jaccard Similarity Deduplication**:
    - Compares incoming cards against active cards using a Jaccard Word-Similarity index to filter duplicates.
-     * *Code Location*: Jaccard overlap helper is at [App.jsx: L141-L171](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L141-L171); checked inside the queue updater at [App.jsx: L583-L602](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L583-L602).
+     * *Code Location*: Jaccard overlap helper is at [App.jsx: L157-L187](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L157-L187); checked inside the queue updater at [App.jsx: L598-L617](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L598-L617).
 
 ---
 
@@ -234,5 +240,5 @@ As the Sales Rep speaks, the system automatically checks off items as they say t
      * *Code Location*: [App.jsx: L141-L155](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L141-L155).
 3. **Semantic Completion Engine Loop**:
    - Computes similarity between Rep's spoken vector and suggestion cards. If similarity > 0.65, marks cards completed.
-     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L181-L248](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L181-L248).
-     * *Rep role enforcement check*: Implemented at [App.jsx: L191-L194](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L191-L194).
+     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L196-L263](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L196-L263).
+     * *Rep role enforcement check*: Implemented at [App.jsx: L206-L209](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L206-L209).
