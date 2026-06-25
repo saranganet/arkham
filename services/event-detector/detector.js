@@ -31,17 +31,17 @@ const PLAYBOOKS = {
 };
 
 // Compact categories map for the output schemas
-const CATEGORY_MAP = {
-  OBJ_BUDGET: "Objection: Budget / Pricing",
-  OBJ_TIMELINE: "Objection: Implementation / Onboarding Timeline",
-  OBJ_SWITCHING: "Objection: Switching Friction / Contract Lock-in",
+export const CATEGORY_MAP = {
+  BUDGET: "Pricing, Cost & Budget Concerns",
+  TIMELINE: "Timeline, Scheduling & Onboarding Speed",
+  SWITCHING: "Switching Providers & Contract Lock-in",
   COMPETITOR: "Competitor Mentioned",
-  SIGNAL_BUY: "Buying Signal / Next Steps",
+  BUY_SIGNAL: "Buying Signal / Next Steps",
   INQUIRY: "Product / General Inquiry",
-  NONE: "No Specific Objection / Intent",
-  OBJ_ISA_FEES: "Objection: ISA / Course Fees",
-  OBJ_PLACEMENT: "Objection: Job Placements / CTC",
-  OBJ_AFFILIATION: "Objection: Degree Affiliation / Accreditation"
+  NONE: "No Specific Objection / Topic",
+  FEES: "Fees, Financing & Scholarships",
+  PLACEMENT: "Job Placements, CTC & Career Support",
+  DEGREE: "Degree Accreditation & Rishihood University Affiliation"
 };
 
 // Playbook & Business keywords to bypass zero-shot checking instantly
@@ -55,7 +55,13 @@ const SALES_KEYWORDS = new Set([
   'masai', 'scaler', 'upgrad', 'simplilearn', 'book', 'connect', 'schedule', 'call', 
   'meet', 'meeting', 'test', 'aptitude', 'enroll', 'register', 'calendar', 'tuesday', 
   'monday', 'wednesday', 'thursday', 'friday', 'next week', 'course', 'curriculum', 
-  'syllabus', 'classes', 'class', 'learn', 'learning', 'program'
+  'syllabus', 'classes', 'class', 'learn', 'learning', 'program',
+  'compare', 'comparison', 'vs', 'versus', 'alternative', 'alternatives', 
+  'differ', 'difference', 'different', 'other', 'others', 'another', 
+  'better', 'worse', 'cheaper', 'cheap', 'expensive', 'pricey', 'costly', 
+  'coding ninjas', 'codingninjas', 'ninjas', 'geekster', 'prepbytes', 
+  'codingblocks', 'coding blocks', 'udemy', 'coursera', 'edx', 'great learning', 
+  'greatlearning', 'ineuron', 'pw skills', 'pwskills'
 ]);
 
 // Common fillers & agreement words for gatekeeper exit
@@ -179,16 +185,16 @@ Configured Playbook: "${chosenPlaybook.name}"
 Playbook Focus Guidelines: ${chosenPlaybook.guidelines}
 
 Classification Schema ("cat" code):
-- OBJ_BUDGET: Concerns about cost, price, expensive subscriptions, discount requests (SaaS / general).
-- OBJ_TIMELINE: Concerns about lack of developer resource, implementation timeline, onboarding speed, launch delay (SaaS / general).
-- OBJ_SWITCHING: Friction of migrating from a current provider or vendor lock-in contracts.
-- COMPETITOR: Mention of competitor platforms (Salesforce, HubSpot, Masai School, Scaler, etc.).
-- SIGNAL_BUY: Asks for next steps, contracting, compliance/security docs, pricing sheets, pilot/demo, free aptitude scholarship test, or explicitly agreeing (e.g. saying "yeah", "yes", "sure") to a Rep's direct proposal to schedule a call, take a test, or book a counseling session.
-- INQUIRY: Standard complex product, course, or curriculum questions. Do not use for simple greetings or checking if this is Newton School.
-- OBJ_ISA_FEES: Objections about course fees, registration fee, Income Share Agreement (ISA) terms, loan EMIs, or scholarship eligibility (Newton School context).
-- OBJ_PLACEMENT: Concerns or questions about job placement assistance, CTC packages, LPA expectations, career cells, hiring partner network (Newton School context).
-- OBJ_AFFILIATION: Concerns or questions about B.Tech degree credibility, UGC approval status, Rishihood University degree affiliation, or course certifications (Newton School context).
-- NONE: Agreement sounds / backchanneling when the Rep is speaking, general small talk, general confirmation, simple greetings, or basic identification/neutral checks (e.g., confirming name/location, "hello", "who is this?").
+- BUDGET: Concerns or questions about cost, pricing, fees, expensive subscriptions, or discount requests.
+- TIMELINE: Concerns or questions about implementation timeline, onboarding speed, scheduling, class timing, or launch delays.
+- SWITCHING: Friction or questions about migrating from a current provider, switching career tracks, or vendor lock-in contracts.
+- COMPETITOR: Mention of competitor platforms or schools (Salesforce, HubSpot, Masai School, Scaler, Coding Ninjas, etc.).
+- BUY_SIGNAL: Asks for next steps, scheduling, booking a session, taking a free aptitude/scholarship test, or explicitly agreeing to a Rep's direct next-step proposal.
+- INQUIRY: Standard product, course, curriculum, syllabus, or general questions.
+- FEES: Concerns or questions about course fees, ISA terms, loan EMIs, payment structures, or scholarship details (Newton School context).
+- PLACEMENT: Concerns or questions about job placement support, CTC packages, LPA expectations, or partner networks (Newton School context).
+- DEGREE: Concerns or questions about degree credibility, UGC approval, or Rishihood University affiliation (Newton School context).
+- NONE: General backchanneling/agreement (e.g. "yeah" when Rep is talking), small talk, basic greetings, or neutral identification checks.
 
 You MUST respond with a valid JSON object strictly adhering to this compressed format:
 {
@@ -208,12 +214,13 @@ Ensure:
   }
 
   // Formats conversation history sliding window for context resolution
-  formatContext(history, currentUtterance) {
+  formatContext(history, currentUtterance, repSpeakerId = 0) {
     const contextLines = [];
     const window = history.slice(-this.contextWindowSize);
+    const repId = repSpeakerId !== null ? String(repSpeakerId) : "0";
     
     for (const turn of window) {
-      const label = turn.speaker === 0 ? "Rep" : "Customer";
+      const label = String(turn.speaker) === repId ? "Rep" : "Customer";
       contextLines.push(`[${label}]: ${turn.text}`);
     }
     
@@ -222,7 +229,7 @@ Ensure:
   }
 
   // Main entrypoint: evaluates utterance, triggers reflex match, then schedules 8B cognitive router
-  async detect(utterance, history = [], isCustomer = true) {
+  async detect(utterance, history = [], isCustomer = true, repSpeakerId = 0) {
     const eventId = "det_" + crypto.randomBytes(4).toString('hex');
     const timestamp = Date.now();
 
@@ -238,8 +245,9 @@ Ensure:
 
     // Find the last Rep utterance in history to see if it was a question
     let lastRepUtterance = null;
+    const repId = repSpeakerId !== null ? String(repSpeakerId) : "0";
     for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].speaker === 0) { // Speaker 0 is Rep
+      if (String(history[i].speaker) === repId) {
         lastRepUtterance = history[i].text;
         break;
       }
@@ -282,7 +290,7 @@ Ensure:
 
     // 2. COGNITIVE ROUTER (Groq Llama 3.1 8B)
     let llmIntents = [];
-    const promptContext = this.formatContext(history, utterance);
+    const promptContext = this.formatContext(history, utterance, repSpeakerId);
 
     if (this.groqApiKey && this.groqApiKey !== "placeholder") {
       try {

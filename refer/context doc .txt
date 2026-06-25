@@ -1,6 +1,7 @@
 AI Sales Copilot - Project Context Document
+
 Current Status
-* PROTOTYPE COMPLETE: We have built a fully functional prototype. The frontend is a premium React/CSS dashboard supporting hardware-level speaker distinguishing (mixing local mic and tab loopback audio into a stereo stream for 100% accurate diarization) and single-mic AI diarization. When the customer speaks, the backend aggregates transcriptions, passes them to a Cognitive-First local Event Detector (implementing 0ms/20ms local Zero-Shot nli-deberta-v3-small classification to bypass LLM calls for general small talk), and routes active objections to the Groq dual-LLM pipeline (Llama 3.1 8B Tier 1, Llama 3.3 70B Tier 2) to formulate concise point-based tactical response cues in direct format. Cues are rendered in a clean, vertical timeline UI with auto-scroll and cue persistence during customer backchanneling, utilizing a normalized Jaccard word similarity deduplication algorithm to prevent duplicates and alert fatigue.
+* PROTOTYPE COMPLETE & OPTIMIZED: We have built a fully functional prototype. The frontend is a premium React/CSS dashboard supporting hardware-level speaker separation (enforcing 2-channel stereo mapping where channel 0 is the microphone/Rep and channel 1 is the speaker loopback/Customer, completely disabling AI diarization). When either the Customer or Rep speaks, the backend aggregates transcriptions, runs local 0ms/20ms early-exit gatekeepers (filler filters, greeting filters, and local Zero-Shot nli-deberta-v3-small classification to bypass LLM calls for pleasantries), and runs a dual-LLM pipeline utilizing Groq Llama 3.1 8B (llama-3.1-8b-instant) for both intent classification (LLM 1) and suggestion generation (LLM 2) to reduce cloud costs by 12x and latency to ~100ms. If an unknown competitor is mentioned (e.g., Coding Ninjas), the backend queries the Tavily API in real-time, injecting the web results into the prompt. Category keys have been shortened and neutralized to topic-focused codes (FEES, PLACEMENT, DEGREE, BUY_SIGNAL, etc.) to handle both objections and inquiries neutrally, and are mapped to friendly names (CATEGORY_MAP) to prevent code leakage. Cues are rendered in a clean, vertical timeline UI with auto-scroll and cue persistence, utilizing a local semantic check-off via Transformers.js (cosine similarity > 0.65) and a normalized Jaccard word similarity deduplication algorithm.
 
 Product Vision
 Build a real-time AI Sales Copilot that assists sales representatives during live sales calls.
@@ -72,75 +73,44 @@ Supported Platforms:
 	•	Exotel
 	•	Browser-based CRMs
 
-AI Lane Architecture
-Lane 1 - Reflex Lane
-Purpose:
-Instant reactions.
-Examples:
-	•	Competitor detection
-	•	Objection detection
-	•	Battlecard retrieval
-No LLM.
-Target latency:
-<100ms
+AI Lane Architecture (Prototype Implementation)
+In the high-performance prototype, the distributed lanes have been consolidated into a streamlined, high-speed dual-LLM pipeline running on the stt-proxy server to achieve a sub-350ms end-to-end response time.
 
-Lane 2 - Hybrid Lane
-Purpose:
-Handle unknown competitors and unknown entities.
-Uses LLM.
-Generates temporary battlecards.
-Caches results.
+1. Reflex Lane (Consolidated):
+   - Handles instant objection and competitor matches using local database guidelines (`PLAYBOOK_FACTS`) and local regex/zero-shot checks, avoiding LLM calls for small talk.
+   - Target latency: <20ms.
 
-Lane 3 - Tactical Lane
-Purpose:
-Answer product questions.
-Uses:
-	•	Qdrant
-	•	RAG
-	•	Product documentation
-	•	Security documentation
-	•	Pricing documentation
+2. Hybrid Lane (Consolidated):
+   - Triggers automatically when a competitor intent (`COMPETITOR`) is classified by LLM 1 but the competitor entity name is not present in our local database.
+   - Executes real-time Tavily search queries to get pricing, curriculum, and reviews, then pipes the snippets directly into LLM 2 for comparison card generation.
 
-Lane 4 - Strategic Lane
-Purpose:
-Coach the rep.
-Examples:
-	•	Budget not discussed
-	•	Decision maker missing
-	•	Timeline missing
-	•	Buying intent increasing
-Runs periodically.
+3. Tactical Lane (Consolidated):
+   - Mapped directly to the Suggestion Generator (LLM 2) prompt context.
+   - Provides concrete direction cues and single direct suggested responding phrases in parentheses `(Say: "...")`.
 
-Lane 5 - Memory Lane
-Purpose:
-Maintain call state.
-Tracks:
-	•	Budget
-	•	Timeline
-	•	Competitors
-	•	Risks
-	•	Objections
-	•	Decision makers
-	•	Buying signals
-All other lanes read from memory.
+4. Strategic Lane (Consolidated):
+   - Mapped to the proactive topic detector rules. If the Rep proactively mentions a topic (e.g. "let's discuss pricing"), the system bypasses filler checks and generates relevant prompt cues to guide the discussion.
+
+5. Memory Lane (Consolidated):
+   - Managed via the sliding `conversationHistory` window containing speaker-attributed utterances, feeding the context window of LLMs 1 and 2 to resolve pronoun references and maintain conversation state.
 
 Event Architecture Philosophy
 The system should not react to transcript chunks.
 The system should react to meaningful events.
 Wrong:
-Transcript ↓ Lane ↓ Suggestion
+Transcript → Lane → Suggestion
 Correct:
-Transcript ↓ Event Detector ↓ Event ↓ Lane ↓ Suggestion
+Transcript → Event Detector → Event → Lane → Suggestion
 
 Conversation Guidance Philosophy
 The system should not generate scripts.
 The system should not generate responses.
 The system should generate:
-Direction + Supporting Context
+Direction + Supporting Context
 Example:
 Talk about implementation timeline
-Salesforce → consulting-heavy
-HubSpot → faster onboarding
+Salesforce → consulting-heavy
+HubSpot → faster onboarding
 The exact UI is intentionally undecided.
 Only the philosophy is locked.
 
@@ -155,13 +125,10 @@ Multi-tenant isolation is mandatory.
 Major Architecture Decisions Already Made
 ✓ Event Detector required
 ✓ Transcript Aggregator required
-✓ Suggestion Ranker required
-✓ Memory Lane required
-✓ NATS Event Bus required
-✓ Multi-tenant architecture required
+✓ Suggestion Ranker/Deduplicator (Jaccard Overlap) required
+✓ Memory Lane (Sliding History Cache) required
+✓ Enforced Stereo Separation (AI Diarization Disabled) required
+✓ Multi-tenant architecture design required
 ✓ Direction-first guidance required
 ✓ Anti-script philosophy adopted
-✓ UI rendering intentionally deferred
-
-
-
+✓ UI rendering timeline layout complete

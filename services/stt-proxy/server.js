@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { TranscriptAggregator } from "../transcript-aggregator/Aggregator.js";
-import { EventDetector } from "../event-detector/detector.js";
+import { EventDetector, CATEGORY_MAP } from "../event-detector/detector.js";
 
 // Load environment variables
 dotenv.config();
@@ -74,28 +74,48 @@ Do not write long text blocks. Output concise pointers, exact numbers (e.g., 1.8
 // Mapped playbook guidelines for LLM 2 prompt minimization
 const PLAYBOOK_FACTS = {
   newtonschool: {
-    OBJ_ISA_FEES: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
-    OBJ_PLACEMENT: "- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School). Placements: CTC packages 25 LPA+; MNCs: Amazon, Flipkart, Meesho, IBM.",
-    OBJ_AFFILIATION: "- Degree Affiliation: cs & ai B.Tech is fully UGC-accredited via Rishihood University degree affiliation.",
+    FEES: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
+    BUDGET: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
+    PLACEMENT: "- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School). Placements: CTC packages 25 LPA+; MNCs: Amazon, Flipkart, Meesho, IBM.",
+    DEGREE: "- Degree Affiliation: cs & ai B.Tech is fully UGC-accredited via Rishihood University degree affiliation.",
     COMPETITOR: "- Competitor Objections (Simplilearn/Intellipaat/Cheaper 60k course): Highlight instructor quality (Google/Amazon experts), lifetime placement support (Subhadip Das case), and company-specific grooming sessions before interview rounds. If competitor is expensive, compare USPs directly to show value. If competitor is aligned, connect with similar alum for trust.",
-    SIGNAL_BUY: "- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).",
-    INQUIRY: "- Base Pitch & Curriculum: Excel, SQL, Python, ML. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). MWF 9 pm - 11 pm live classes. Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories."
+    BUY_SIGNAL: "- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).",
+    INQUIRY: "- Base Pitch & Curriculum: Excel, SQL, Python, ML. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). MWF 9 pm - 11 pm live classes. Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories.",
+    TIMELINE: "- Admissions Timeline & Commitment: Classes MWF 9 pm - 11 pm live. Student must commit 3-4 hours/day. Next steps: Free 45-min aptitude test to determine scholarship.",
+    SWITCHING: "- Career Switch / Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories."
   },
   saas: {
-    OBJ_BUDGET: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
-    OBJ_TIMELINE: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
-    OBJ_SWITCHING: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
+    BUDGET: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
+    TIMELINE: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
+    SWITCHING: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
     COMPETITOR: "- Competitor Objections: Salesforce (takes 6 months, cost double; we go live in 2 weeks), HubSpot (user-friendly but custom object limits scale block), Zoho (highly custom but setup friction).",
-    SIGNAL_BUY: "- Next Steps: Book a 15-minute setup call next Tuesday to configure your workspace sandbox."
+    BUY_SIGNAL: "- Next Steps: Book a 15-minute setup call next Tuesday to configure your workspace sandbox.",
+    INQUIRY: "- General Inquiry: Focus on B2B SaaS guidelines, ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
+    FEES: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
+    PLACEMENT: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
+    DEGREE: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies."
   },
   insurance: {
-    OBJ_BUDGET: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability. Bundling discounts (auto + home + life).",
-    OBJ_SWITCHING: "- Switching Friction: Effortless switching assistance. Highlight the cost of being underinsured.",
-    SIGNAL_BUY: "- Next Steps: Free quote review or schedule a follow-up call."
+    BUDGET: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability. Bundling discounts (auto + home + life).",
+    TIMELINE: "- Timeline: Effortless switching assistance. Guarantee quick response time.",
+    SWITCHING: "- Switching Friction: Effortless switching assistance. Highlight the cost of being underinsured.",
+    COMPETITOR: "- Competitor: Effortless switching assistance. Compare rates and deductibles.",
+    BUY_SIGNAL: "- Next Steps: Free quote review or schedule a follow-up call.",
+    INQUIRY: "- General Inquiry: Explain coverage, deductibles adjustment, bundling options.",
+    FEES: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage.",
+    PLACEMENT: "- General guidelines: Focus on B2C insurance objections.",
+    DEGREE: "- General guidelines: Focus on B2C insurance objections."
   },
   realestate: {
-    OBJ_BUDGET: "- Budget/Pricing: Marry the house and refinance the rate later. Secure the property price today. Address interest rate anxiety.",
-    OBJ_TIMELINE: "- Timeline/Fit: Highlight localized neighborhood growth trends, neighborhood fit, inspection findings, appreciation."
+    BUDGET: "- Budget/Pricing: Marry the house and refinance the rate later. Secure the property price today. Address interest rate anxiety.",
+    TIMELINE: "- Timeline/Fit: Highlight localized neighborhood growth trends, neighborhood fit, inspection findings, appreciation.",
+    SWITCHING: "- Switching Friction: Highlight appreciation of current vs new property. Address equity building.",
+    COMPETITOR: "- Competitor: Highlight localized neighborhood growth trends, building equity, appreciation.",
+    BUY_SIGNAL: "- Next Steps: Book home tour, schedule site visit.",
+    INQUIRY: "- General Inquiry: Highlight localized neighborhood growth trends, neighborhood fit, appreciation.",
+    FEES: "- Budget/Pricing: Marry the house and refinance the rate later.",
+    PLACEMENT: "- General guidelines: Focus on real estate objections.",
+    DEGREE: "- General guidelines: Focus on real estate objections."
   }
 };
 
@@ -165,12 +185,12 @@ const REFLEX_SUGGESTIONS = {
     salesforce: '• Handle Salesforce comparison (Soft: "Salesforce is extremely powerful, but it often requires a dedicated admin to manage." | Bold: "Salesforce implementation will take 6 months and cost double. We can go live in under 2 weeks.")',
     zoho: '• Address Zoho fit (Soft: "Zoho is highly custom, but has complex setup friction." | Bold: "Let\'s compare Zoho\'s custom capability against our out-of-the-box speed.")'
   },
-  OBJ_BUDGET: {
+  BUDGET: {
     general: '• Handle price objections via ROI (Soft: "I hear you on budget. Let\'s outline the ROI to see if it covers the platform cost." | Bold: "If cost wasn\'t a blocker, would you sign today? Let\'s qualify the priority first.")',
     realestate: '• Address interest rate anxiety (Soft: "I understand rates are higher right now, but you can always refinance when they drop." | Bold: "Marry the house and refinance the rate later. Let\'s secure the property price today.")'
   },
-  OBJ_TIMELINE: '• Guarantee rapid onboarding (Soft: "We handle all migration and onboarding in less than 2 weeks." | Bold: "Let\'s commit to a 2-week launch timeline so your reps start seeing value this quarter.")',
-  SIGNAL_BUY: '• Lock in next steps and trial (Soft: "Would you like me to share our security SOC2 compliance package?" | Bold: "Let\'s book a 15-minute setup call next Tuesday to configure your workspace sandbox.")'
+  TIMELINE: '• Guarantee rapid onboarding (Soft: "We handle all migration and onboarding in less than 2 weeks." | Bold: "Let\'s commit to a 2-week launch timeline so your reps start seeing value this quarter.")',
+  BUY_SIGNAL: '• Lock in next steps and trial (Soft: "Would you like me to share our security SOC2 compliance package?" | Bold: "Let\'s book a 15-minute setup call next Tuesday to configure your workspace sandbox.")'
 };
 
 function getReflexSuggestion(intents, playbook) {
@@ -186,13 +206,13 @@ function getReflexSuggestion(intents, playbook) {
       } else if (comp.includes("zoho")) {
         suggestions.push(REFLEX_SUGGESTIONS.COMPETITOR.zoho);
       }
-    } else if (intent.cat === "OBJ_BUDGET") {
-      const option = REFLEX_SUGGESTIONS.OBJ_BUDGET[playbook] || REFLEX_SUGGESTIONS.OBJ_BUDGET.general;
+    } else if (intent.cat === "BUDGET") {
+      const option = REFLEX_SUGGESTIONS.BUDGET[playbook] || REFLEX_SUGGESTIONS.BUDGET.general;
       suggestions.push(option);
-    } else if (intent.cat === "OBJ_TIMELINE") {
-      suggestions.push(REFLEX_SUGGESTIONS.OBJ_TIMELINE);
-    } else if (intent.cat === "SIGNAL_BUY") {
-      suggestions.push(REFLEX_SUGGESTIONS.SIGNAL_BUY);
+    } else if (intent.cat === "TIMELINE") {
+      suggestions.push(REFLEX_SUGGESTIONS.TIMELINE);
+    } else if (intent.cat === "BUY_SIGNAL") {
+      suggestions.push(REFLEX_SUGGESTIONS.BUY_SIGNAL);
     }
   }
   
@@ -281,7 +301,7 @@ EXAMPLE GOOD OUTPUT:
         });
 
         console.log(`[EventDetector] Running on ${currentRole} utterance: "${utt.text}"`);
-        const detectResult = await detector.detect(utt, conversationHistory, currentRole === "Customer");
+        const detectResult = await detector.detect(utt, conversationHistory, currentRole === "Customer", repSpeakerId);
         console.log(`[EventDetector] Detected Intents:`, JSON.stringify(detectResult.intents));
 
         // 1. GATEKEEPER / NONE CHECK: Early exit on NONE / no active intents
@@ -317,7 +337,10 @@ EXAMPLE GOOD OUTPUT:
           return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
         }).join("\n");
         
-        const activeIntentCategories = detectResult.intents.map(i => `${i.cat}${i.entity ? ` (${i.entity})` : ''}`).join(", ");
+        const activeIntentCategories = detectResult.intents.map(i => {
+          const friendlyName = CATEGORY_MAP[i.cat] || i.cat;
+          return `${friendlyName}${i.entity ? ` (${i.entity})` : ''}`;
+        }).join(", ");
 
         // Step A: Retrieve only relevant playbook guidelines
         const mappedFacts = getRelevantPlaybookFacts(playbook, detectResult.intents);
@@ -354,7 +377,7 @@ YOUR STRICT OUTPUT RULES:
 1. Output a maximum of 2 to 3 bullet points. Each bullet point must represent one clear tactical cue or answer helper.
 2. For each bullet point, provide a short tactical direction cue AND a single suggested response phrase in parentheses using the format: (Say: "your suggested response phrase"). Do NOT include "Soft" or "Bold" variations.
 3. Keep the direction cue and the suggested phrasing extremely concise. Do not include any other explanations or markdown headers.
-4. If the customer is making small talk, confirming details (like the school name "Newton School of Technology" or basic greetings), or if no active sales objection handling is needed, do NOT output any bullet points. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any formatting.
+4. If real-time web search results for a competitor are provided under FACTUAL SALES MANUAL CUES, you MUST dynamically integrate those specific facts (e.g. competitor pricing, course duration, reviews vs our pricing/features) into at least one of your response cues to compare them directly.
 `;
 
         const fullPrompt = `${tailoredPlaybookPrompt}
@@ -417,9 +440,9 @@ ${roleInstruction}`;
       smart_format: smartFormat,
       interim_results: interimResults,
       endpointing: 500, // Enable Deepgram VAD (500ms silence threshold)
-      diarize: !multichannel, // Disable AI diarization if hardware multichannel is active
-      multichannel: multichannel,
-      channels: channels,
+      diarize: false, // AI diarization completely disabled
+      multichannel: true, // Always use multichannel (Channel 0 = Microphone/Rep, Channel 1 = Speaker/Customer)
+      channels: 2, // Always transcribe 2 channels (mic and speaker loopback)
     };
 
     // Connect to live transcription endpoint

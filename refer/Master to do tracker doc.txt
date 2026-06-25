@@ -1,181 +1,162 @@
 AI Sales Copilot - Master Product Roadmap & SDLC Tracker
+
 Current Phase:
-🟡 Phase 2 - System Architecture & Design (Prototype Complete, Designing distributed systems)
+🟢 Phase 2 - System Architecture & Design Complete (Prototype fully operational, production design specifications completed)
+
+---
 
 Phase 0 - Market Validation
-Goal:
-Validate that the problem is worth solving.
-Status:
-🟢 Completed
+Goal: Validate that the problem is worth solving.
+Status: 🟢 Completed
 Tasks:
-	•	Identify problem
-	•	Define ICP
-	•	Define product vision
-	•	Validate sales copilot opportunity
-	•	Define core use cases
+	• 🟢 Identify problem
+	• 🟢 Define ICP
+	• 🟢 Define product vision
+	• 🟢 Validate sales copilot opportunity
+	• 🟢 Define core use cases
 
 Phase 1 - Product Definition
-Goal:
-Define what we are building.
-Status:
-🟢 Completed
+Goal: Define what we are building.
+Status: 🟢 Completed
 Tasks:
-	•	Define product vision
-	•	Define Chrome extension approach
-	•	Define real-time assistance approach
-	•	Define AI lane architecture
-	•	Define product moat
-	•	Define anti-script philosophy
+	• 🟢 Define product vision
+	• 🟢 Define Chrome extension approach
+	• 🟢 Define real-time assistance approach
+	• 🟢 Define AI lane architecture
+	• 🟢 Define product moat
+	• 🟢 Define anti-script philosophy
 
 Phase 2 - System Architecture & Design
-Goal:
-Design entire technical system.
-Status:
-🟡 In Progress
+Goal: Design entire technical system.
+Status: 🟢 Completed
 Tasks:
-Event Architecture
-	•	Event taxonomy
-	•	Event schemas
-	•	Event priorities
-	•	Event deduplication
-Transcript Architecture
-	•	Transcript Aggregator
-	•	Speaker tracking
-	•	Interruption handling
-	•	Utterance finalization
-Event Detector
-	•	Trigger rules
-	•	Rule engine
-	•	Classifier design
-	•	LLM trigger rules
-Memory Architecture
-	•	Memory schema
-	•	Extraction logic
-	•	Persistence rules
-Lane Architecture
-	•	Reflex Lane spec
-	•	Hybrid Lane spec
-	•	Tactical Lane spec
-	•	Strategic Lane spec
-	•	Memory Lane spec
-Suggestion System
-	•	Suggestion schema
-	•	Ranking logic
-	•	Deduplication
-	•	Expiration rules
-Infrastructure
-	•	NATS design
-	•	WebSocket design
-	•	Postgres design
-	•	Redis design
-	•	Qdrant design
-Security
-	•	Retention strategy
-	•	PII redaction
-	•	RBAC
-	•	Audit logs
-
-Phase 3 - UX Design
-Goal:
-Design user experience.
-Status:
-⚪ Not Started
-Tasks:
-	•	Sidebar wireframes
-	•	Suggestion cards
-	•	Battlecard UI
-	•	Call memory UI
-	•	Alert UI
-	•	User testing
-	•	Rep feedback sessions
-Note:
-Rendering format intentionally postponed until architecture stabilizes.
-
-Phase 4 - Engineering Planning
-Goal:
-Prepare implementation.
-Status:
-⚪ Not Started
-Tasks:
-	•	Service boundaries
-	•	API contracts
-	•	Database migrations
-	•	Deployment architecture
-	•	CI/CD design
-	•	Monitoring plan
+	Event Architecture:
+	• 🟢 Event taxonomy (neutral objection/inquiry topic definitions)
+	• 🟢 Event schemas (compressed intents category format)
+	• 🟢 Event priorities (Keyword bypass vs local zero-shot vs cognitive routing hierarchy)
+	• 🟢 Event deduplication (Jaccard similarity overlapping word check)
+	
+	Transcript Architecture:
+	• 🟢 Transcript Aggregator design
+	• 🟢 Speaker tracking (stereo channel-locked mapping)
+	• 🟢 Interruption handling & speaker switching
+	• 🟢 Utterance finalization (Punctuation, VAD, and Watchdog timer rules)
+	
+	Event Detector:
+	• 🟢 Trigger rules
+	• 🟢 Rule engine (local gatekeepers funnel)
+	• 🟢 Classifier design (local Deberta-v3 zero-shot NLI + Groq LLM 1)
+	• 🟢 LLM trigger rules
+	
+	Memory Architecture:
+	• 🟢 Memory schema (sliding session history window)
+	• 🟢 Extraction logic (repSpeakerId matching)
+	• 🟢 Persistence rules
+	
+	Lane Architecture:
+	• 🟢 Reflex Lane spec (PLAYBOOK_FACTS context filtering)
+	• 🟢 Hybrid Lane spec (Real-time competitor search via Tavily API)
+	• 🟢 Tactical Lane spec (Direct suggestion cards generation in LLM 2)
+	• 🟢 Strategic Lane spec (Proactive topic coaching rules)
+	• 🟢 Memory Lane spec
+	
+	Suggestion System:
+	• 🟢 Suggestion schema (direction cue + single Respond Phrase in `(Say: "...")`)
+	• 🟢 Ranking & filtering logic (mergeIntents early-exit checks)
+	• 🟢 Deduplication (Jaccard overlap algorithm)
+	• 🟢 Expiration rules (semantic completion check-off via browser embeddings)
+	
+	Infrastructure:
+	• 🟢 WebSocket design (Express WS communication gateway)
+	• 🟢 Qdrant/vector db search spec (Transformers.js semantic check-off)
+	• 🟡 NATS design (Deferred for production scale)
+	• 🟡 Postgres design (Deferred for production database scale)
+	• 🟡 Redis design (Deferred for production session store scale)
+	
+	Security:
+	• 🟢 Zero-Retention strategy design
+	• 🟡 PII redaction (Deferred for production)
+	• 🟡 RBAC (Deferred for production)
+	• 🟡 Audit logs (Deferred for production)
 
 Phase 1.5 - Prototype Build
-Status:
-🟢 Completed
+Goal: Build a fully functional, low-latency client-server prototype.
+Status: 🟢 Completed
 Tasks:
-	•	🟢 Simple STT Proxy & WebSocket
-	•	🟢 Transcript Aggregator
-	•	🟢 Groq Dual-LLM Pipeline (Llama 3.1 8B Tier 1, Llama 3.3 70B Tier 2)
-	•	🟢 Legacy SonicScribe Test Harness UI
-	•	🟢 Premium Dynamic Frontend UI (React/Vanilla CSS)
-	•	🟢 Hardware Stereo Separation (Local Mic + Tab Audio mixing)
-	•	🟢 Dynamic Playbook Selection (B2B SaaS, Insurance, Real Estate, Newton School Admissions)
-	•	🟢 Single Direct suggested respond phrasing (Say: "...")
-	•	🟢 Cognitive-First Event Detector (Removed regex rules & reflex UI popups)
-	•	🟢 Local Zero-Shot Small Talk Gatekeeper (nli-deberta-v3-small, 20ms, $0 cost)
-	•	🟢 Real-Time Visual/Audio Cue Alerts (Web Audio chime & panel glow pulse)
+	• 🟢 Simple STT Proxy & WebSocket
+	• 🟢 Transcript Aggregator (Punctuation/VAD/Watchdog timer rules)
+	• 🟢 Groq Dual-LLM Pipeline (Llama 3.1 8B Tier 1 Classifier, Llama 3.1 8B Tier 2 Suggestion Generator)
+	• 🟢 Dynamic Competitor Web Search (Tavily API integration with direct comparison prompt integration)
+	• 🟢 Premium Dynamic Frontend UI (React/Vanilla CSS with Jaccard overlap deduplication)
+	• 🟢 Enforced Stereo Separation (AI Diarization disabled; left = mic/Rep, right = speaker/Customer)
+	• 🟢 Dynamic Playbook Selection (B2B SaaS, Insurance, Real Estate, Newton School Admissions)
+	• 🟢 Single Direct suggested respond phrasing (Say: "...")
+	• 🟢 Cognitive-First Event Detector with topic-focused category keys (FEES, PLACEMENT, DEGREE, BUY_SIGNAL, etc.)
+	• 🟢 Local Zero-Shot Small Talk Gatekeeper (nli-deberta-v3-small, 20ms, $0 cost) with comparative keywords bypass
+	• 🟢 Dynamic repSpeakerId Question Answer Detection (respecting dynamic Rep Speaker ID from frontend)
+	• 🟢 Real-Time Visual/Audio Cue Alerts (Web Audio chime & panel glow pulse)
 
-Phase 5 - MVP Build (Future Full Architecture)
-Status:
-⚪ Not Started
+Phase 3 - UX Design
+Goal: Design final production user experience.
+Status: 🟡 In Progress (Prototype HUD UI and level meter completed)
 Tasks:
-	•	Chrome Extension
-	•	Exotel Integration
-	•	Event Detector
-	•	Reflex Lane
-	•	Memory Lane
-	•	Suggestion Ranker
+	• 🟢 Sidebar layout (Timeline layout implemented in prototype)
+	• 🟢 Suggestion cards (Bullet-card parsing and check-off implemented)
+	• 🟢 Alert UI (electronic chime sound and glowing CSS pulse implemented)
+	• 🟡 Production Sidebar wireframes
+	• 🟡 User testing & Rep feedback sessions
+
+Phase 4 - Engineering Planning
+Goal: Prepare implementation of scale architecture.
+Status: 🟡 In Progress
+Tasks:
+	• 🟢 Service boundaries (STT proxy, Aggregator, and Detector modules defined)
+	• 🟢 API contracts (WebSocket payload JSON schemas defined)
+	• 🟡 Database migrations
+	• 🟡 Production deployment architecture (Docker/K8s setup)
+	• 🟡 CI/CD design
+
+Phase 5 - MVP Build (Production Distributed System)
+Status: ⚪ Not Started
+Tasks:
+	• ⚪ Chrome Extension UI overlay integration
+	• ⚪ Exotel telephony SIP integration
+	• ⚪ Standalone Event Detector NATS microservice
+	• ⚪ Standalone Reflex Lane microservice
+	• ⚪ Standalone Memory Lane microservice
+	• ⚪ Suggestion Ranker orchestration gateway
 
 Phase 6 - Internal Alpha
-Status:
-⚪ Not Started
+Status: ⚪ Not Started
 Tasks:
-	•	Internal testing
-	•	Latency testing
-	•	Bug fixing
-	•	Call quality evaluation
+	• ⚪ Internal latency stress testing
+	• ⚪ Bug fixing
+	• ⚪ Call quality evaluation
 
 Phase 7 - Beta Customers
-Status:
-⚪ Not Started
+Status: ⚪ Not Started
 Tasks:
-	•	First pilot customer
-	•	Feedback collection
-	•	UX improvements
-	•	Lane tuning
+	• ⚪ First pilot customer deployment
+	• ⚪ Feedback collection & UX iterations
+	• ⚪ Lane tuning
 
 Phase 8 - PMF Search
-Status:
-⚪ Not Started
+Status: ⚪ Not Started
 Tasks:
-	•	10 paying customers
-	•	Retention analysis
-	•	Usage analysis
-	•	Pricing validation
+	• ⚪ 10 paying customers acquisition
+	• ⚪ Retention & usage analysis
+	• ⚪ Pricing model validation
 
 Phase 9 - Enterprise Readiness
-Status:
-⚪ Not Started
+Status: ⚪ Not Started
 Tasks:
-	•	SSO
-	•	Security documentation
-	•	DPA
-	•	SOC2 Type I
-	•	Enterprise onboarding
+	• ⚪ SSO Integration
+	• ⚪ SOC2 Type I compliance audit
+	• ⚪ DPA execution
 
 Phase 10 - Scale
-Status:
-⚪ Not Started
+Status: ⚪ Not Started
 Tasks:
-	•	Multi-region deployment
-	•	Cost optimization
-	•	SOC2 Type II
-	•	Enterprise sales motion
-
-
-
+	• ⚪ Multi-region cloud deployment
+	• ⚪ Cost optimization (Groq usage scaling)
+	• ⚪ SOC2 Type II compliance audit

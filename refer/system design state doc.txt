@@ -1,399 +1,107 @@
 AI Sales Copilot - System Design & Architecture Document
 
-*** CURRENT PROTOTYPE DEVIATION ***
-Note: To validate the product quickly, we are currently running a simplified prototype architecture. 
-Instead of the full distributed Event Detector -> NATS -> Lanes pipeline, the current integrated flow is:
-Local Mic + Shared Tab Audio -> Browser Web Audio Mixer (Stereo Merger) -> STT Proxy -> Transcript Aggregator -> Event Detector (detector.js) -> LLM Suggestion (Groq/Gemini) -> WebSocket Gateway -> React UI (Timeline Layout)
-
-Key Prototype Milestones Completed:
-  - Premium Cluely-style React 19 Frontend with canvas level meter visualizer and interactive checklist.
-  - Multi-channel stereo mixing (mic in Left channel, tab loopback audio in Right channel) providing 100% accurate speaker separation.
-  - Cognitive-First Event Detector (services/event-detector) implementing local 0ms/20ms early-exit gatekeepers (filler filters, neutral greeting filter, and local Zero-Shot nli-deberta-v3-small classification for complex pleasantries) and Groq Llama 3.1 8B classification with dynamic entity parsing, removing the legacy regex rules and reflex lane to prevent UI flickering.
-  - Single tactical suggested response phrasings in direct (Say: "...") format, replacing legacy "Soft" vs "Bold" variations.
-  - Clean vertical timeline queue (no card boxes or background panels) for displaying incoming cues one-by-one, with auto-scroll and card persistence on customer filler words.
-  - Jaccard similarity word overlap deduplicator in the React UI to prevent duplicate suggestions and alert fatigue.
-  - Real-Time Visual/Audio Cue Alerts synthesizing a clean 880Hz electronic sound chime via Web Audio API, and a custom CSS keyframe glow animation.
-***********************************
+*** CURRENT PROTOTYPE IMPLEMENTATION STATE ***
+Note: To validate the product quickly and achieve low latencies, we are running an optimized consolidated architecture.
+Instead of a distributed set of microservices communicating over NATS, the pipeline is integrated into:
+- Web Audio Mixer: Merges Rep Mic (Channel 0) and Customer Speaker Loopback (Channel 1) in the browser.
+- STT Proxy (services/stt-proxy/server.js): Connects to Deepgram Live Stream (diarize: false, multichannel: true, channels: 2).
+- Transcript Aggregator (services/transcript-aggregator/Aggregator.js): Reconstructs sentences using Punctuation, VAD/Speech Final, and watchdog timers.
+- Event Detector (services/event-detector/detector.js): Runs local gatekeepers (filler, greeting, question-answering context, local Zero-Shot classification) and Groq Llama 3.1 8B (LLM 1) for intent classification.
+- Suggestion Generator (services/stt-proxy/server.js): Integrates local playbook facts, executing real-time Tavily competitor searches and Groq Llama 3.1 8B (LLM 2) to generate direct response cues.
+- React HUD (packages/ui/src/App.jsx): Performs Jaccard similarity deduplication, plays synthesized Web Audio API chimes, and runs a browser-local Transformers.js embedding model (all-MiniLM-L6-v2) to handle semantic check-offs.
+*********************************************
 
 Current Status:
-	•	Streaming STT Design
-	•	Transcript Aggregator Design
-	•	Event Detector Design
-	•	NATS Architecture
-	•	AI Lane Architecture
-	•	Suggestion Ranker Design
-	•	WebSocket Architecture
-	•	Chrome Extension Integration
-Purpose:
-This document defines the technical architecture of the AI Sales Copilot.
-It contains:
-	•	System architecture
-	•	Component responsibilities
-	•	Data flow
-	•	Service boundaries
-	•	Technical decisions
-	•	Open architecture questions
-	•	Architecture TODOs
-This document should evolve until implementation begins.
+	✔ Streaming STT Design (Implemented & Enforced Stereo Mapping)
+	✔ Transcript Aggregator Design (Implemented with Punctuation/VAD/Watchdog rules)
+	✔ Event Detector Design (Implemented with local gatekeepers + Llama 3.1 8B)
+	✔ AI Lane Architecture (Implemented as consolidated playbook facts + Tavily Search + LLM 2)
+	✔ Suggestion Ranker/Deduplicator (Implemented as client-side Jaccard similarity check)
+	✔ WebSocket Gateway (Implemented in stt-proxy using express-ws)
+	✔ React HUD Frontend UI (Implemented in packages/ui)
+	🟡 NATS Architecture (Designed, Deferred for Prototype)
+	🟡 Strategic Lane (Designed, Deferred for Prototype)
+	🟡 Storage & Multi-Tenancy (Designed, Deferred for Prototype)
 
-High-Level Architecture
-Exotel ↓ Audio Stream ↓ Streaming STT ↓ Transcript Aggregator ↓ Event Detector ↓ NATS Event Bus ↓ AI Lanes ↓ Suggestion Ranker ↓ WebSocket Gateway ↓ Chrome Extension
+High-Level Architecture Flow (Prototype)
+Browser (Mic + Loopback Audio)
+     ↓ (Web Audio ChannelMerger: Left = Rep, Right = Customer)
+stt-proxy (Express + WebSocket Server)
+     ↓ (Audio chunks forwarded; diarize: false, multichannel: true)
+Deepgram API (Live Streaming)
+     ↓ (Channel-isolated transcripts returned)
+Transcript Aggregator (Buffer & segment finalized sentences)
+     ↓ (Finalized utterance event emitted)
+Event Detector (isFiller? isGreeting? isRespondingToRepQuestion? isZeroShotSmallTalk?)
+     ↓ (Proceeds if sales intent keywords match or NLI classification is < 70% small talk)
+Groq LLM 1 (Llama 3.1 8B Classifier: FEES, PLACEMENT, DEGREE, BUDGET, TIMELINE, COMPETITOR, etc.)
+     ↓ (Bypasses LLM 2 if intents list is empty)
+Playbook facts retrieval & Tavily Competitor Web Search
+     ↓ (Snippets + Guidelines context built)
+Groq LLM 2 (Llama 3.1 8B Suggestion Generator: direct response formatting)
+     ↓ (WebSocket push containing cue pointers)
+React HUD (Chime, CSS flash glow, Jaccard overlap deduplication, Transformers.js semantic check-off)
 
-Core Architecture Principles
-Human-First Assistance
-The AI assists the rep.
-The AI does not replace the rep.
+---
 
-Direction Over Scripts
-The system should generate:
-Direction + Supporting Context
-The system should not generate:
-	•	Long responses
-	•	Read-aloud scripts
-	•	Complete paragraphs
-Example:
-Talk about implementation timeline
-Salesforce → consulting-heavy
-HubSpot → faster onboarding
-Exact rendering intentionally undecided.
+Component Details
 
-Event-Driven Architecture
-The system reacts to events.
-Not transcript chunks.
-Not every sentence.
-Not every utterance.
-Architecture:
-Transcript ↓ Event Detector ↓ Event ↓ Lane ↓ Suggestion
-
-Backend-Centric Intelligence
-Chrome Extension = UI only.
-All intelligence remains on backend.
-
-Component Architecture
 1. Streaming STT Service
-Purpose:
-Convert audio into transcript chunks.
-Responsibilities:
-	•	Audio ingestion
-	•	Streaming transcription
-	•	Speaker attribution
-	•	Low-latency transcript generation
-Output:
-Partial transcript events
-Architecture TODO
-	•	Select STT provider
-	•	Define speaker separation strategy
-	•	Define transcript format
+   - Status: Implemented
+   - Enforces `diarize: false`, `multichannel: true`, and `channels: 2` to isolate Rep (mic) on Channel 0 and Customer (speaker) on Channel 1.
+   - Prevents AI clustering speaker role inversion bugs.
 
-2. Transcript Aggregator
-Purpose:
-Convert noisy transcript chunks into meaningful utterances.
-Responsibilities:
-	•	Merge chunks
-	•	Reconstruct sentences
-	•	Handle interruptions
-	•	Handle speaker switching
-	•	Produce finalized utterances
-Output:
-Finalized utterances
-Important:
-All downstream services consume finalized utterances.
-Not raw chunks.
-Architecture TODO
-	•	Define aggregation strategy
-	•	Define interruption handling
-	•	Define utterance completion logic
-	•	Define buffering strategy
-	•	Define latency targets
+2. Transcript Aggregator (services/transcript-aggregator/Aggregator.js)
+   - Status: Implemented
+   - Buffers speaker-attributed text strings.
+   - Finalizes utterances based on:
+     1. Punctuation Rule: Sentence ending in `.`, `!`, `?` (Immediate).
+     2. Speech Final Rule: Deepgram speech activity silence event detected (500ms).
+     3. Watchdog Timer: Fallback to flush buffer if no activity occurs for 3000ms.
 
-3. Event Detector
-Purpose:
-Identify meaningful events.
-Responsibilities:
-	•	Detect state changes
-	•	Detect sales-relevant moments
-	•	Trigger downstream processing
-Philosophy:
-Trigger on events.
-Not transcript arrival.
-Architecture TODO
-	•	Define event taxonomy
-	•	Define event schemas
-	•	Define event priorities
-	•	Define event deduplication
-	•	Define event expiration
+3. Event Detector (services/event-detector/detector.js)
+   - Status: Implemented
+   - Employs a low-latency gatekeeper funnel before hitting cloud LLM services:
+     1. Question-Answering context: Traverses history to see if the Rep's last utterance was a question. If true, overrides the filler word filter so answers like "yeah" are not discarded.
+     2. Filler Check: Short text blocks (<4 words) containing only fillers (yeah, ok, etc.) are bypassed (cards persist).
+     3. Neutral / Greeting Check: Bypasses hello greetings and school identifier confirmations.
+     4. Keyword bypass: If sales/objection/competitor keywords are in the text, instantly routes to LLM 1.
+     5. Local Zero-Shot classification: Uses Xenova/nli-deberta-v3-small to measure small-talk confidence. If >= 70%, exits early.
+   - Routinely sends bypassed texts to Groq Llama 3.1 8B to classify sales intents using neutralized, shortened categories (FEES, DEGREE, PLACEMENT, etc.).
 
-Event Categories
-Memory Events
-Examples:
-	•	budget_added
-	•	competitor_added
-	•	timeline_added
-	•	decision_maker_added
-TODO
-	•	Define all memory events
+4. Memory Lane (Session History Cache)
+   - Status: Implemented
+   - Utilizes a sliding memory array of the last 10 utterances.
+   - Re-applies active Rep/Customer speaker roles dynamically based on the current session's `repSpeakerId` flag.
 
-Conversation Events
-Examples:
-	•	product_question
-	•	pricing_question
-	•	security_question
-	•	competitor_question
-TODO
-	•	Define all conversation events
+5. Reflex Lane (Playbook Guidelines)
+   - Status: Implemented
+   - Extracts facts from `PLAYBOOK_FACTS` mapped directly to active intents. Filters out guideline text that is irrelevant to the active classification, reducing LLM 2 prompt token overhead.
 
-Hybrid Events
-Examples:
-	•	unknown_competitor
-	•	unknown_product
-	•	unknown_integration
-TODO
-	•	Define hybrid event triggers
+6. Hybrid Lane (Real-Time Web Search)
+   - Status: Implemented
+   - Triggered when competitor is classified but the entity name is not listed in our static playbook facts.
+   - Queries the Tavily Search API and returns the top 2 content snippets, which are injected into the prompt.
 
-Strategic Events
-Examples:
-	•	missing_budget
-	•	missing_timeline
-	•	missing_decision_maker
-TODO
-	•	Define strategic event generation
+7. Suggestion Generator (LLM 2)
+   - Status: Implemented
+   - Queries Groq Llama 3.1 8B using playbook guidelines and search snippets.
+   - Rules: Outputs 2-3 bullets maximum, formatting responses strictly as direction cues with a single suggested respond phrase in parentheses: `(Say: "...")`.
+   - Incorporates real-time facts directly into the suggested comparison phrasing.
 
-Buying Signal Events
-Examples:
-	•	high_intent
-	•	evaluation_active
-	•	procurement_stage
-TODO
-	•	Define buying signal logic
+8. Suggestion Deduplicator (Jaccard Overlap)
+   - Status: Implemented in packages/ui/src/App.jsx
+   - Compares incoming cards against active cards on screen using a Jaccard word-similarity index.
+   - Ignores filler words and maps currency variations (e.g. lakh, rs). If similarity is > 55%, the card is discarded to prevent alert fatigue.
 
-Event Trigger Strategy
-Rule-Based Detection
-No LLM.
-Examples:
-	•	Competitor names
-	•	Budget mentions
-	•	Timeline mentions
-	•	Pricing mentions
-TODO
-	•	Define rule engine
+9. Suggestion Check-off (Semantic Completion)
+   - Status: Implemented in packages/ui/src/App.jsx
+   - Generates local embeddings of Rep's spoken sentences using Xenova/all-MiniLM-L6-v2.
+   - Computes cosine similarity against active suggestions. If > 0.65, marks the card as completed and slides it off screen.
 
-Classifier Detection
-Small model.
-Examples:
-	•	Objection detection
-	•	Buying signal detection
-	•	Intent classification
-TODO
-	•	Define classifier architecture
+---
 
-LLM Detection
-Used only when necessary.
-Examples:
-	•	Unknown competitor
-	•	Complex product question
-	•	Unknown integration
-TODO
-	•	Define LLM trigger rules
-
-4. NATS Event Bus
-Purpose:
-Transport events.
-Not routing logic.
-Responsibilities:
-	•	Publish events
-	•	Subscribe services
-	•	Decouple components
-TODO
-	•	Define NATS subjects
-	•	Define event routing
-	•	Define retry strategy
-	•	Define failure handling
-
-5. Memory Lane
-Purpose:
-Maintain structured call memory.
-Storage:
-Redis
-Tracks:
-	•	Budget
-	•	Timeline
-	•	Competitors
-	•	Objections
-	•	Risks
-	•	Buying signals
-	•	Decision makers
-Example:
-{ "budget":"50k", "timeline":"Q4", "competitors":["Salesforce"] }
-TODO
-	•	Define memory schema
-	•	Define update logic
-	•	Define extraction logic
-	•	Define persistence strategy
-
-6. Reflex Lane
-Purpose:
-Instant reactions.
-Target Latency:
-<100ms
-No LLM.
-Uses:
-	•	Battlecards
-	•	Playbooks
-	•	Competitor database
-	•	Objection rules
-TODO
-	•	Define battlecard format
-	•	Define competitor matching
-	•	Define objection handling logic
-
-7. Hybrid Lane
-Purpose:
-Handle unknown entities.
-Flow:
-Unknown Competitor ↓ LLM ↓ Temporary Battlecard ↓ Cache
-TODO
-	•	Define battlecard generation
-	•	Define cache strategy
-	•	Define refresh strategy
-
-8. Tactical Lane
-Purpose:
-Answer product questions.
-Flow:
-Question ↓ Retrieval ↓ LLM ↓ Suggestion
-Uses:
-	•	Product Docs
-	•	Pricing Docs
-	•	Security Docs
-	•	FAQs
-TODO
-	•	Define retrieval architecture
-	•	Define prompt architecture
-	•	Define Qdrant collections
-	•	Define response format
-
-9. Strategic Lane
-Purpose:
-Coach the rep.
-Examples:
-	•	Missing budget
-	•	Missing timeline
-	•	Missing decision maker
-	•	Increasing intent
-Runs periodically.
-TODO
-	•	Define coaching rules
-	•	Define scheduling logic
-	•	Define gap detection logic
-
-10. Suggestion Ranker
-Purpose:
-Multiple lanes may produce outputs.
-Responsibilities:
-	•	Deduplication
-	•	Prioritization
-	•	Ranking
-	•	Expiration
-Only highest-value suggestions should reach the sidebar.
-TODO
-	•	Define suggestion schema
-	•	Define ranking algorithm
-	•	Define expiration rules
-	•	Define priority scoring
-
-11. WebSocket Gateway
-Purpose:
-Realtime delivery.
-Responsibilities:
-	•	Push suggestions
-	•	Push memory updates
-	•	Push alerts
-TODO
-	•	Define websocket contracts
-	•	Define connection strategy
-	•	Define reconnection strategy
-
-Storage Architecture
-PostgreSQL
-Stores:
-	•	Tenants
-	•	Organizations
-	•	Users
-	•	Competitors
-	•	Battlecards
-	•	Products
-	•	Calls
-TODO
-	•	Design schema
-
-Redis
-Stores:
-	•	Active call memory
-	•	Lane outputs
-	•	Temporary state
-TODO
-	•	Design schema
-
-Qdrant
-Stores:
-	•	Product docs
-	•	Pricing docs
-	•	Security docs
-	•	FAQs
-	•	Training material
-TODO
-	•	Design collections
-
-Multi-Tenant Architecture
-Requirements:
-Every object belongs to a tenant.
-Postgres:
-tenant_id
-Redis:
-tenant_id:call_id
-NATS:
-tenant..call.
-TODO
-	•	Define tenant isolation strategy
-
-Security Architecture
-Default Mode:
-Zero Retention
-Audio deleted after processing.
-Future Modes:
-	•	Transcript retention
-	•	Full retention
-Principles:
-	•	Encryption at rest
-	•	Encryption in transit
-	•	Customer data not used for training
-TODO
-	•	Retention design
-	•	PII redaction design
-	•	RBAC design
-	•	Audit logging design
-
-Architecture Diagrams
-TODO
-	•	System architecture diagram
-	•	Sequence diagrams
-	•	Event flow diagram
-	•	Memory flow diagram
-	•	NATS flow diagram
-	•	Deployment architecture diagram
-
-Current Architecture Priorities
-Priority 1
-	•	Event Detector Specification v1
-Priority 2
-	•	Transcript Aggregator Design
-Priority 3
-	•	Memory Lane Schema
-Priority 4
-	•	Suggestion Schema
-Priority 5
-	•	NATS Architecture
-Priority 6
-	•	Service Boundary Definition
-These six items should be completed before implementation begins.
-
+Security & Tenant Isolation Plans (Deferred for Production)
+- Zero Retention: Audio streams are processed in-memory and are never written to disk.
+- Tenant keys: Redis/Postgres keys will incorporate a prefix format of `tenant_id:call_id`.
+- NATS Subjects: Subjects will follow a `tenant.<id>.call.<id>` subject hierarchy.
