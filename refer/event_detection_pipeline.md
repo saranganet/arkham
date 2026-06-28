@@ -6,7 +6,7 @@ This document provides a comprehensive, end-to-end technical breakdown of the Sa
 
 ## 1. End-to-End Pipeline Architecture
 
-The system utilizes a dual-path pipeline: a low-latency local gatekeeper path running on the Node.js server and client browser (~0ms–20ms), and a cognitive cloud path utilizing Groq's Llama 3.1 8B API and Tavily search (~100ms–250ms).
+The system utilizes a dual-path pipeline: a low-latency local gatekeeper path running on the Node.js server and client browser (~0ms–20ms), a local Speech Emotion Recognition (SER) path (~120ms), and a cognitive cloud path utilizing Groq's Llama 3.1 8B API and Tavily search (~100ms–250ms).
 
 ```mermaid
 graph TD
@@ -14,16 +14,25 @@ graph TD
     subgraph Stage 1: Audio Capture & Aggregation
         A1[Sales Rep Microphone] -->|Left Channel - Ch 0| A3[Web Audio Mixer / Stereo Merger]
         A2[Browser / Tab Loopback Audio] -->|Right Channel - Ch 1| A3
-        A3 -->|2-Channel Stereo PCM Buffer| B[stt-proxy Server]
-        B -->|Stream Audio Chunks| C[Deepgram Live API]
+        A3 -->|16kHz 2-Ch Interleaved Int16 PCM| B[stt-proxy Server]
+        B -->|Accumulate Float32 Buffers| B_Buf[repAudioSamples / customerAudioSamples]
+        B -->|Stream Raw PCM Bytes| C[Deepgram Live API]
         C -->|Multichannel Transcription JSON| B
         B -->|Speaker 0/1 Transcripts| D[Transcript Aggregator]
         D -->|Buffer & Merge Chunks| D
         D -->|Emit Finalized Utterance| E[Unified Processing Path]
     end
 
-    %% Stage 2: Symmetric Gatekeeper Funnel
-    subgraph Stage 2: Local Gatekeeper Funnel
+    %% Stage 2: Speech Emotion Recognition
+    subgraph Stage 2: Speech Emotion Recognition
+        E -->|Get Start/End Timestamps| SER_Slice[Extract Audio Waveform Slice]
+        SER_Slice -->|Select Rep or Customer Buffer| SER_Inference[Local ONNX wav2vec2 Model]
+        SER_Inference -->|Classify Tone & Probability| SER_Map[Map Emotion Tag: Calm/Happy/Agitated/Sad]
+        SER_Map -->|Inject emotion & emotionScore| E
+    end
+
+    %% Stage 3: Symmetric Gatekeeper Funnel
+    subgraph Stage 3: Local Gatekeeper Funnel
         E -->|Calculate Context| F[Check QA Context: isRespondingToQuestion?]
         F --> H{Is Filler Utterance?}
         
@@ -42,8 +51,8 @@ graph TD
         ZeroShot -->|Score < 70% Small Talk| LLM1
     end
 
-    %% Stage 3 & 4: Classifier & early-exit
-    subgraph Stage 3 & 4: Intent Classification & Early-Exit
+    %% Stage 4 & 5: Classifier & early-exit
+    subgraph Stage 4 & 5: Intent Classification & Early-Exit
         LLM1 -->|Run Classification| L2[Filter NONE Intents]
         L2 --> L3{Intents Empty?}
         L3 -- Yes (Customer) --> L4[Push Clear Screen Signal]
@@ -51,20 +60,24 @@ graph TD
         L3 -- No --> M1[Intent-focused Guidelines Retrieval]
     end
 
-    %% Stage 5 & 6: Search & Suggestions
-    subgraph Stage 5 & 6: Contextual Search & Suggestions
-        M1 --> M2{Unknown Entity Mentioned?}
-        M2 -- Yes --> M3[Tavily Search: Pricing/Curriculum/Reviews]
-        M2 -- No --> M4[Assemble Prompt Context]
-        M3 --> M4
-        M4 --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
+    %% Stage 6 & 7: Search & Suggestions
+    subgraph Stage 6 & 7: Contextual Search & Suggestions
+        M1 --> M2{Manager Direct Rule?}
+        M2 -- Yes --> M3[Use Direct Rule Cue]
+        M2 -- No --> M4[Query Qdrant RAG / Local Mock]
+        M4 --> M5{Any RAG Results?}
+        M5 -- Yes --> M6[Assemble Prompt Context]
+        M5 -- No --> M7[Tavily Search: Pricing/Curriculum/Reviews]
+        M7 --> M6
+        M3 --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
+        M6 --> N1
         N1 -->|Generate Bullet Suggestions| O1[WebSocket Push to UI]
     end
 
-    %% Stage 7 & 8: Rendering & Completion
-    subgraph Stage 7 & 8: UI Rendering & Semantic Check-off
+    %% Stage 8 & 9: Rendering & Completion
+    subgraph Stage 8 & 9: UI Rendering & Semantic Check-off
         O1 --> P1[React HUD Display]
-        P1 --> P2[Web Audio API Chime + Panel Glow Alert]
+        P1 --> P2[Web Audio API Chime + Panel Glow Alert + Emotion Badge]
         P1 --> P3[Jaccard Similarity Deduplication Check]
         P3 -->|Overlap > 55%| P4[Discard Suggestion Card]
         P3 -->|Unique| P5[Render Slide-in Card]
@@ -83,160 +96,171 @@ graph TD
 
 1. **Physical Sound Input**:
    - The React UI client captures the Sales Rep's local voice via the browser's microphone input.
-     * *Code Location*: [App.jsx: L287-298](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L287-L298) inside the `startRecordingSession()` routine.
+     * *Code Location*: [App.jsx: L309-318](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L309-L318) inside the `startRecordingSession()` routine.
    - Simultaneously, the client captures the incoming customer audio via tab or window audio loopback.
-     * *Code Location*: [App.jsx: L303-325](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L303-L325) using `navigator.mediaDevices.getDisplayMedia`.
-2. **Channel Separation Mixer**:
-   - The React app instantiates a Web Audio API `AudioContext` and a `ChannelMergerNode` with `numberOfInputs = 2`.
-     * *Code Location*: [App.jsx: L327-359](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L327-L359).
+     * *Code Location*: [App.jsx: L322-337](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L322-L337) using `navigator.mediaDevices.getDisplayMedia`.
+2. **Channel Separation Mixer & Downsampler**:
+   - The React app instantiates a Web Audio API `AudioContext` and a `ChannelMergerNode` with `numberOfInputs = 2`. The context is created natively at **16,000 Hz** to perform client-side downsampling.
+     * *Code Location*: [App.jsx: L347-357](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L347-L357).
    - The microphone stream is connected to input 0 (Left channel), and the browser/speaker loopback stream is connected to input 1 (Right channel).
    - This ensures **hardware-level stereo mapping**:
      - **Channel 0** is mathematically locked to the **Sales Rep** (`speaker: 0`).
      - **Channel 1** is mathematically locked to the **Customer** (`speaker: 1`).
-3. **Deepgram Transcription Ingestion**:
-   - The mixed stereo audio stream is sliced into 250ms buffers and sent as binary blobs over a WebSocket connection to the `stt-proxy` server.
-     * *Code Ingestion Location*: [App.jsx: L637-665](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L637-L665) inside `startAudioCapture()`.
-   - The proxy establishes a connection to the Deepgram Live Streaming API with the following parameters:
-     - `diarize: false`: AI clustering speaker diarization is disabled. Standard AI diarization clusters speakers dynamically, meaning that whoever speaks first is assigned ID 0. Enforcing channel-locked speaker separation resolves this 100% reliably.
-     - `multichannel: true`: Enforces independent transcription of each stereo channel.
-     - `channels: 2`: Notifies the engine of two distinct channels.
-     - `endpointing: 500`: Enables Voice Activity Detection (VAD) on Deepgram's side with a 500ms silence threshold.
+3. **Lightweight PCM Streaming**:
+   - A `ScriptProcessorNode` listens to the merger output. In `onaudioprocess`, it reads the Float32 samples from both channels, clamps/scales them, and packs them into interleaved 16-bit Int16 PCM binary chunks. These are sent over a WebSocket connection to the proxy server.
+     * *Code Location*: [App.jsx: L368-398](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L368-L398).
+4. **Deepgram Transcription Ingestion**:
+   - The proxy receives raw binary PCM chunks and forwards them directly to Deepgram Live Streaming API configured with:
+     - `encoding: 'linear16'`, `sample_rate: 16000`, `channels: 2`, `multichannel: true`.
+     - `diarize: false`: AI speaker clustering is bypassed in favor of hardware-channel speaker mapping.
+     - `endpointing: 500`: Enables Voice Activity Detection (VAD) with a 500ms silence threshold.
      - `smart_format: true`, `interim_results: true`.
-     * *Code Location*: [server.js: L436-458](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L436-L458) inside the connection setup.
-4. **Proxy Separation**:
-   - Deepgram streams back JSON payloads containing the transcribed text and the `channel_index` field (0 or 1).
+     * *Code Location*: [server.js: L504-518](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L504-L518) inside the connection setup.
+5. **Proxy Speaker Index Mapping**:
+   - Deepgram returns JSON payloads containing transcribed text and the `channel_index` field (0 or 1).
    - The proxy maps `channel_index: 0` to `speaker: 0` (Rep) and `channel_index: 1` to `speaker: 1` (Customer).
-     * *Code Location*: [server.js: L468-478](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L468-L478).
+     * *Code Location*: [server.js: L527-537](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L527-L537).
 
 ---
 
-### Stage 2: Low-Latency Utterance Aggregation
+### Stage 2: Low-Latency Utterance Aggregation & Audio Buffering
 
-Before sending transcripts to the NLP classifiers, raw, noisy text fragments must be reconstructed into cohesive sentences.
-
-1. **Speaker Buffers**:
-   - The `TranscriptAggregator` maintains an active Map of buffers keyed by speaker ID.
-     * *Code Location*: [Aggregator.js: L8-L10](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L8-L10) (`this.activeUtterances`).
-2. **Utterance Finalization Rules**:
-   An utterance buffer for a given speaker is finalized and flushed to the NLP pipeline when any of the following rules are met:
-   - **Rule 1: Punctuation Ending**: The incoming word chunk ends with a sentence terminator (`.`, `!`, `?`). This handles fast talkers who speak multiple sentences in a single stretch.
-     * *Code Location*: [Aggregator.js: L25-L60](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L25-L60) inside `processChunk()`.
-   - **Rule 2: VAD / Speech Final**: Deepgram triggers `speech_final: true` (which fires after 500ms of silence on the channel). This handles natural pauses.
-     * *Code Location*: [Aggregator.js: L68-L73](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L68-L73).
-   - **Rule 3: Watchdog Timeout**: A fallback timer of 3000ms triggers if no punctuation is found and VAD fails to trigger. This prevents text from getting stuck in memory buffers indefinitely.
-     * *Code Location*: [Aggregator.js: L61-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L61-L65) and [Aggregator.js: L80-L84](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L80-L84).
-   - **Finalization & Emission**: The finalized event is structured and emitted.
-     * *Code Location*: [Aggregator.js: L76-L100](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js#L76-L100).
-3. **History Cache**:
-   - Once finalized, the utterance is appended to the session's sliding `conversationHistory` cache (limited to the last 10 turns to avoid context bloat).
-     * *Code Location*: [server.js: L266-274](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L266-L274).
+1. **In-Memory Audio Buffering**:
+   - As raw PCM chunks arrive on the WebSocket from the client, the server unpacks the interleaved Int16 frames into respective Float32 arrays (`repAudioSamples` and `customerAudioSamples`).
+     * *Code Location*: [server.js: L559-577](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L559-L577).
+2. **Utterance Finalization**:
+   - The `TranscriptAggregator` merges word fragments into cohesive sentences. An utterance is finalized and flushed when:
+     - **Rule 1: Punctuation Ending**: The incoming word chunk ends with a sentence terminator (`.`, `!`, `?`).
+     - **Rule 2: VAD / Speech Final**: Deepgram triggers `speech_final: true`.
+     - **Rule 3: Watchdog Timeout**: A fallback timer of 3000ms triggers if VAD and punctuation checks fail to fire.
+     * *Code Location*: [Aggregator.js](file:///Users/arkapravorajkonwar/Documents/arkham/services/transcript-aggregator/Aggregator.js).
 
 ---
 
-### Stage 3: Local Gatekeeper Funnel & Question-Answering Routing (~0ms–20ms)
+### Stage 3: Server-Side Speech Emotion Recognition (SER) (~120ms)
+
+When `TranscriptAggregator` finalizes an utterance, the server performs vocal tone analysis on the raw audio slice corresponding to that utterance before sending the transcript to the client.
+
+1. **Model Pre-loading**:
+   - The server loads the **`onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX`** model using `@xenova/transformers` on startup.
+     * *Code Location*: [server.js: L220-L227](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L220-L227).
+2. **Audio Slice Extraction**:
+   - Maps Deepgram's `start` and `end` timestamps (in seconds) directly to sample offsets:
+     $$\text{sampleIndex} = \text{Time} \times 16,000$$
+   - Extracts the Float32 samples from the respective speaker's buffer.
+     * *Code Location*: [server.js: L229-L238](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L229-L238) inside `getAudioSlice()`.
+3. **Local ONNX Classification**:
+   - Runs model inference on the extracted slice (requiring at least 0.5 seconds of audio).
+   - Maps the predicted raw emotion (e.g. `NEUTRAL`, `HAPPY`, `ANGRY`, `SAD`, `FEAR`, `DISGUST`) to friendly user tags:
+     - `NEUTRAL` $\to$ `Calm`
+     - `HAPPY` $\to$ `Happy`
+     - `ANGRY` $\to$ `Agitated`
+     - `SAD` $\to$ `Sad`
+     - `FEAR` $\to$ `Anxious`
+     - `DISGUST` $\to$ `Irritated`
+     * *Code Location*: [server.js: L240-L258](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L240-L258) inside `mapEmotionLabel()`.
+4. **Payload Injection**:
+   - Injects the `emotion` and `emotionScore` directly into the `finalized_utterance` JSON payload.
+     * *Code Location*: [server.js: L261-L285](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L261-L285) inside `aggregator.on('utterance')`.
+
+---
+
+### Stage 4: Local Gatekeeper Funnel & Question-Answering Routing (~0ms–20ms)
 
 To minimize Groq cloud API costs and reduce response latency, the system routes the finalized text through a local gatekeeper funnel. Rep and Customer utterances are treated through the exact same processing pipeline.
 
-The pipeline executes the gatekeeper checks in the logical execution order matching the codebase:
-
 1. **Step A: Question-Answering Context Resolution**:
-   - The context resolver traverses history to check if the current speaker is responding to a question from the *other* speaker.
-   - For example, if the current speaker is Customer, it checks if the Rep's last utterance ended with a `?` or a question-asking grammatical pattern.
-   - If a question is found, `isRespondingToQuestion` is set to `true`.
+   - Checks if the current speaker is responding to a question from the other speaker.
      * *Code Location*: [detector.js: L246-L260](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L246-L260).
 2. **Step B: Filler Check (0ms)**:
-   - Filters out short, low-content filler words (e.g. *yeah, ok, mhm, no*) under 4 words.
-   - **Bypass**: If `isRespondingToQuestion` is `true`, these filler words represent crucial decisions (agreement/disagreement) and bypass this early exit check. If `isRespondingToQuestion` is `false`, they are classified as empty chatter and exit immediately.
-     * *Code Location*: `isFillerUtterance` helper is at [detector.js: L131-L141](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L131-L141); checked at [detector.js: L262-L268](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L262-L268).
+   - Filters out short, low-content filler words (e.g. *yeah, ok, mhm, no*) under 4 words, unless they are replying to a direct question.
+     * *Code Location*: [detector.js: L131-L141](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L131-L141); checked at [detector.js: L262-L268](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L262-L268).
 3. **Step C: Neutral / Greeting Check (0ms)**:
-   - Filters out greetings (*"hello, good morning"*) and neutral identity confirmations (*"is this Newton School?"*) that are complete sentences but contain no sales or objection topics.
-   - **Note on Difference with Step B**: Step B filters short, non-sentence filler words (which can bypass via QA context). Step C filters complete sentence greetings and administrative identity confirmations (which do NOT bypass via QA context, because greetings do not represent decision-making inputs).
-     * *Code Location*: `isNeutralOrGreeting` helper is at [detector.js: L143-L172](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L143-L172); checked at [detector.js: L270-L276](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L270-L276).
+   - Filters out greetings (*"hello, good morning"*) and administrative confirmations (*"is this Newton School?"*) which do not contain any sales or objection topics.
+     * *Code Location*: [detector.js: L143-L172](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L143-L172); checked at [detector.js: L270-L276](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L270-L276).
 4. **Step D: Sales/Comparison Keyword Bypass**:
-   - The text is matched against `SALES_KEYWORDS`. If any keyword matches (e.g. *fees*, *placement*, *vs*, *scaler*, *masai*), it **immediately bypasses all subsequent checks** (including zero-shot) and routes directly to Groq LLM 1.
-     * *Code Location*: Keyword list is at [detector.js: L47-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L47-L65); checked at [detector.js: L278-L300](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L278-L300).
+   - Matches words against `SALES_KEYWORDS`. Any match immediately bypasses all subsequent checks (including zero-shot) and routes directly to Groq LLM 1.
+     * *Code Location*: [detector.js: L47-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L47-L65); checked at [detector.js: L278-L300](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L278-L300).
 5. **Step E: Local Zero-Shot Classifier (20ms)**:
-   - If the text has no sales keywords, it runs a local NLI model inside the Node process (`Xenova/nli-deberta-v3-small`) to score it against small talk/pleasantries.
-   - **Question Response Routing**: Answering a question does not directly bypass the zero-shot classifier. Instead:
-     - If the response is a short filler word (like `"Yeah."`), it directly bypasses the zero-shot model because running NLI on single words in isolation is highly prone to misclassification.
-     - If it is a longer sentence, it is routed to the zero-shot classifier. To prevent Deberta from misclassifying context-reliant responses (like *"No, we actually use that instead."*) as small talk in isolation, the resolver prepends the preceding question context (e.g. *"Do you guys currently use Salesforce for your sales reps? No, we actually use that instead."*).
-   - If the small talk score is $\ge 70\%$, the pipeline exits early. Otherwise, it proceeds to LLM 1.
-     * *Code Location*: Local model check is at [detector.js: L108-L128](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L108-L128) using model loaded in `initClassifier()`; checked at [detector.js: L283-L299](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L283-L299).
+   - If no keywords match, the server runs a local NLI model inside the Node process (`Xenova/nli-deberta-v3-small`) to score the utterance against small talk. If the small talk score is $\ge 70\%$, the pipeline exits early.
+     * *Code Location*: [detector.js: L108-L128](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L108-L128); checked at [detector.js: L283-L299](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L283-L299).
 
 ---
 
-### Stage 4: Intent Classification Cognitive Router (LLM 1) (~120ms)
+### Stage 5: Intent Classification Cognitive Router (LLM 1) (~120ms)
 
 If the local gatekeeper funnel is bypassed, the proxy server sends the conversation history to the Groq Llama 3.1 8B Classifier (`llama-3.1-8b-instant`):
 
-1. **Input Context**: Formatted conversation history sliding window:
-   - Formatted using the `formatContext()` helper at [detector.js: L216-L229](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L216-L229).
-2. **System Prompt Category Schema**: The classifier categorizes the utterance using shortened, topic-focused keys defined in the prompt:
+1. **System Prompt Category Schema**: The classifier categorizes the utterance using shortened, topic-focused keys:
    - `FEES`, `PLACEMENT`, `DEGREE`, `BUDGET`, `TIMELINE`, `SWITCHING`, `COMPETITOR`, `BUY_SIGNAL`, `INQUIRY`, `NONE`.
    - *Code Location*: System prompt definition is at [detector.js: L179-L214](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L179-L214).
-3. **Structured Output & Groq Call**:
-   - The classifier is constrained using JSON Mode to output parsed intents.
-   - *Code Location*: The Groq call and JSON parsing logic resides in `queryGroq()` at [detector.js: L314-L348](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L314-L348).
-4. **Early Exit Validation**:
-   - `NONE` categories are removed via `mergeIntents()` at [detector.js: L174-L177](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L174-L177).
-   - If `detectResult.intents.length === 0`:
-     - If the Rep spoke, the pipeline exits (no screen changes).
-     - If the Customer spoke a full neutral statement, the server pushes a clear screen signal (`"Great job, keep going!"`) to clear stale cards. Downstream LLM 2 is skipped.
-     - *Code Location*: Exits handled in [server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L307-L330).
+2. **Structured Output & Groq Call**:
+   - Resides in `queryGroq()` at [detector.js: L314-L348](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L314-L348).
+3. **Early Exit Validation**:
+   - `NONE` categories are removed via `mergeIntents()` at [detector.js: L174-L177](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L174-L177). If empty, Customer statements push a clear screen signal (`"Great job, keep going!"`), while Rep statements exit silently.
+     * *Code Location*: Exits handled in [server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L307-L330).
 
 ---
 
-### Stage 5: Context Retrieval & Real-Time Competitor Web Search (~150ms)
+### Stage 6: Context Retrieval & Real-Time Competitor Web Search (~150ms)
 
 If active intents are identified, the proxy server retrieves supporting context:
 
-1. **Handbook Playbook Facts**:
-   - Looks up `PLAYBOOK_FACTS` for the active playbook matching the detected intent.
-     * *Code Location*: facts database is at [server.js: L75-L120](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L75-L120) and fact retrieval is at [server.js: L122-L139](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L122-L139).
-2. **Real-Time Tavily Search (Dual-Lane Hybrid Logic)**:
-   - If an entity is extracted by LLM 1 but is not in our local static competitor/playbook database (e.g. *"Coding Ninjas"*, *"AlmaBetter"*), the server queries the **Tavily Search API**. This captures all **unknown entities** dynamically (not just competitors).
-     * *Code Location*: Tavily API search wrapper is at [server.js: L141-L178](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L141-L178); triggered at [server.js: L348-L362](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L348-L362).
+1. **Manager Direct Rule Overrides**:
+   - The system queries `getDirectRule(intentCode, playbook)` to check for custom direct overrides defined by managers in `direct_rules.json`. If a direct override is found, it is used immediately, bypassing the RAG & LLM 2 pipeline.
+     * *Code Location*: [rag.js: L189-203](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/rag.js#L189-L203), referenced at [server.js: L402-411](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L402-L411).
+2. **Qdrant Vector RAG (with Local Mock Fallback)**:
+   - If no direct override exists, the system uses `Xenova/all-MiniLM-L6-v2` to vectorize the customer's utterance and queries Qdrant (`@qdrant/js-client-rest`).
+   - If `QDRANT_URL` is not set, it falls back to a local in-memory/JSON vector database (`rag_store.json`) with local cosine similarity calculation.
+     * *Code Location*: [rag.js: L116-187](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/rag.js#L116-L187), triggered at [server.js: L416-425](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L416-L425).
+3. **Real-Time Tavily Search Fallback**:
+   - If the RAG query returns no documents above the similarity threshold (`0.40`), or if an unknown competitor/entity is mentioned, the system automatically triggers a Tavily web search.
+     * *Code Location*: Tavily API search wrapper is at [server.js: L141-178](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L141-L178); triggered at [server.js: L428-460](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L428-L460).
 
 ---
 
-### Stage 6: Suggestion Generation (LLM 2) (~150ms)
+### Stage 7: Suggestion Generation (LLM 2) (~150ms)
 
 The aggregated guidelines, Tavily search snippets, and conversation logs are sent to the Groq Llama 3.1 8B Suggestion Generator (`llama-3.1-8b-instant`):
 
 1. **System Prompt & Constraints**:
-   - Constraints: Outputs a maximum of 2 to 3 bullet points, formatted strictly as direction cues with a single suggested respond phrase in parentheses: `(Say: "...")`. Instructs the model to dynamically weave search findings into comparison phrasing.
+   - Outputs a maximum of 2 to 3 bullet points, formatted strictly as direction cues with a single suggested respond phrase in parentheses: `(Say: "...")`.
      * *Code Location*: System prompt construction is at [server.js: L370-L389](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L370-L389).
 2. **Groq Execution**:
-   - Sends prompt context to Groq and posts suggestions to the client browser.
-     * *Code Location*: Resides in [server.js: L391-L421](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L391-L421).
+   - Resides in [server.js: L391-L421](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L391-L421).
 
 ---
 
-### Stage 7: WebSocket Push, UI Rendering & Chime Alerts
+### Stage 8: WebSocket Push, UI Rendering & Chime Alerts
 
 1. **UI Parsing & Small Talk Filtration**:
    - The React app parses the incoming suggestions, stripping out bullets and isolating the `(Say: "...")` phrase.
-     * *Code Location*: Suggestion text line parsing logic is at [App.jsx: L538-L596](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L538-L596).
+     * *Code Location*: [App.jsx: L541-L599](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L541-L599).
 2. **Web Audio Chime & Visual Flash**:
    - For new unique suggestions, the app synthesizes a clean **880Hz electronic chime** using the browser's Web Audio API and triggers a glowing CSS alert.
-     * *Code Location*: Oscillator sound chime synthesizer logic is at [App.jsx: L456-L479](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L456-L479).
+     * *Code Location*: [App.jsx: L459-L482](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L459-L482).
 3. **Jaccard Similarity Deduplication**:
    - Compares incoming cards against active cards using a Jaccard Word-Similarity index to filter duplicates.
-     * *Code Location*: Jaccard overlap helper is at [App.jsx: L157-L187](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L157-L187); checked inside the queue updater at [App.jsx: L598-L617](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L598-L617).
+     * *Code Location*: Jaccard overlap helper is at [App.jsx: L160-L190](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L160-L190); checked inside the queue updater at [App.jsx: L601-L620](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L601-L620).
+4. **Live Emotion & Sentiment Badge Rendering**:
+   - Displays the friendly emotion name along with the weighted sentiment score in parentheses (e.g. `Agitated (-0.90)`) next to the speaker label.
+     * *Code Location*: [App.jsx: L1023-L1035](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L1023-L1035).
 
 ---
 
-### Stage 8: Closing the Loop: Semantic Check-off via Browser Embeddings
+### Stage 9: Closing the Loop: Semantic Check-off & Auto-Scrolling Focus Queue
 
-As the Sales Rep speaks, the system automatically checks off items as they say them:
+As the Sales Rep speaks, the system automatically checks off items as they say them, and automatically scrolls the checklist timeline to center the active focus:
 
 1. **Local Browser Embedder**:
    - Loads a quantized, INT8 version of the **`all-MiniLM-L6-v2`** model on mount.
      * *Code Location*: [App.jsx: L107-L124](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L107-L124).
 2. **Cosine Similarity Helper**:
-   - Mathematical helper defining the cosine similarity computation between vector dimensions.
+   - Computes cosine similarity between Rep's spoken vector and target suggestion cards.
      * *Code Location*: [App.jsx: L141-L155](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L141-L155).
 3. **Semantic Completion Engine Loop**:
-   - Computes similarity between Rep's spoken vector and suggestion cards. If similarity > 0.65, marks cards completed.
-     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L196-L263](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L196-L263).
-     * *Rep role enforcement check*: Implemented at [App.jsx: L206-L209](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L206-L209).
+   - If similarity > 0.65, marks cards completed.
+     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L199-L266](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L199-L266).
+4. **Auto-scrolling Focus Queue**:
+   - Keeps the first incomplete card (`active-cue-card`) dynamically centered in the timeline scroll panel, scrolling past completed/faded cards smoothly.
+     * *Code Location*: Scroll hook at [App.jsx: L92-L98](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L92-L98) and active card tagging/scrolling container rendering at [App.jsx: L1101-L1130](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L1101-L1130).

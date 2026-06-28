@@ -7,7 +7,7 @@ Instead of a distributed set of microservices communicating over NATS, the pipel
 - STT Proxy (services/stt-proxy/server.js): Connects to Deepgram Live Stream (diarize: false, multichannel: true, channels: 2).
 - Transcript Aggregator (services/transcript-aggregator/Aggregator.js): Reconstructs sentences using Punctuation, VAD/Speech Final, and watchdog timers.
 - Event Detector (services/event-detector/detector.js): Runs local gatekeepers (filler, greeting, question-answering context, local Zero-Shot classification) and Groq Llama 3.1 8B (LLM 1) for intent classification.
-- Suggestion Generator (services/stt-proxy/server.js): Integrates local playbook facts, executing real-time Tavily competitor searches and Groq Llama 3.1 8B (LLM 2) to generate direct response cues.
+- Suggestion Generator (services/stt-proxy/server.js): Integrates Qdrant RAG playbook facts (with local memory mock fallback) and manager direct rule overrides, executing real-time Tavily competitor searches and Groq Llama 3.1 8B (LLM 2) to generate direct response cues.
 - React HUD (packages/ui/src/App.jsx): Performs Jaccard similarity deduplication, plays synthesized Web Audio API chimes, and runs a browser-local Transformers.js embedding model (all-MiniLM-L6-v2) to handle semantic check-offs.
 *********************************************
 
@@ -15,7 +15,7 @@ Current Status:
 	✔ Streaming STT Design (Implemented & Enforced Stereo Mapping)
 	✔ Transcript Aggregator Design (Implemented with Punctuation/VAD/Watchdog rules)
 	✔ Event Detector Design (Implemented with local gatekeepers + Llama 3.1 8B)
-	✔ AI Lane Architecture (Implemented as consolidated playbook facts + Tavily Search + LLM 2)
+	✔ AI Lane Architecture (Implemented as Qdrant RAG + Manager Direct Rules + Tavily Fallback + LLM 2)
 	✔ Suggestion Ranker/Deduplicator (Implemented as client-side Jaccard similarity check)
 	✔ WebSocket Gateway (Implemented in stt-proxy using express-ws)
 	✔ React HUD Frontend UI (Implemented in packages/ui)
@@ -36,7 +36,7 @@ Event Detector (isFiller? isGreeting? isRespondingToRepQuestion? isZeroShotSmall
      ↓ (Proceeds if sales intent keywords match or NLI classification is < 70% small talk)
 Groq LLM 1 (Llama 3.1 8B Classifier: FEES, PLACEMENT, DEGREE, BUDGET, TIMELINE, COMPETITOR, etc.)
      ↓ (Bypasses LLM 2 if intents list is empty)
-Playbook facts retrieval & Tavily Competitor Web Search
+Qdrant Vector RAG / Manager Direct Rules & Tavily Search Fallback
      ↓ (Snippets + Guidelines context built)
 Groq LLM 2 (Llama 3.1 8B Suggestion Generator: direct response formatting)
      ↓ (WebSocket push containing cue pointers)
@@ -76,7 +76,7 @@ Component Details
 
 5. Reflex Lane (Playbook Guidelines)
    - Status: Implemented
-   - Extracts facts from `PLAYBOOK_FACTS` mapped directly to active intents. Filters out guideline text that is irrelevant to the active classification, reducing LLM 2 prompt token overhead.
+   - Queries Qdrant REST Client (or local JSON mock store) using Xenova/all-MiniLM-L6-v2 embeddings of customer utterances. Alternatively, checks for manager overrides in direct_rules.json. This filters out guideline text that is irrelevant to the active classification, reducing LLM 2 prompt token overhead.
 
 6. Hybrid Lane (Real-Time Web Search)
    - Status: Implemented
