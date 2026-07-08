@@ -6,8 +6,8 @@ Instead of a distributed set of microservices communicating over NATS, the pipel
 - Web Audio Mixer: Merges Rep Mic (Channel 0) and Customer Speaker Loopback (Channel 1) in the browser.
 - STT Proxy (services/stt-proxy/server.js): Connects to Deepgram Live Stream (diarize: false, multichannel: true, channels: 2).
 - Transcript Aggregator (services/transcript-aggregator/Aggregator.js): Reconstructs sentences using Punctuation, VAD/Speech Final, and watchdog timers.
-- Event Detector (services/event-detector/detector.js): Runs local gatekeepers (filler, greeting, question-answering context, local Zero-Shot classification) and Groq Llama 3.1 8B (LLM 1) for intent classification.
-- Suggestion Generator (services/stt-proxy/server.js): Integrates Qdrant RAG playbook facts (with local memory mock fallback) and manager direct rule overrides, executing real-time Tavily competitor searches and Groq Llama 3.1 8B (LLM 2) to generate direct response cues.
+- Event Detector (services/event-detector/detector.js): Runs local gatekeepers (filler, greeting, question-answering context, local Zero-Shot classification) and Groq Llama 3.1 8B (LLM 1) for intent classification and context-aware search query generation.
+- Suggestion Generator (services/stt-proxy/server.js): Integrates Qdrant RAG playbook facts (with local memory mock fallback) and manager direct rule overrides using the unified search query. Executes real-time Tavily competitor searches, filters snippets locally using MiniLM relevance (threshold >= 0.35), and uses Groq Llama 3.1 8B (LLM 2) with strict grounding rules to generate direct response cues.
 - React HUD (packages/ui/src/App.jsx): Performs Jaccard similarity deduplication, plays synthesized Web Audio API chimes, and runs a browser-local Transformers.js embedding model (all-MiniLM-L6-v2) to handle semantic check-offs.
 *********************************************
 
@@ -34,11 +34,13 @@ Transcript Aggregator (Buffer & segment finalized sentences)
      ↓ (Finalized utterance event emitted)
 Event Detector (isFiller? isGreeting? isRespondingToRepQuestion? isZeroShotSmallTalk?)
      ↓ (Proceeds if sales intent keywords match or NLI classification is < 70% small talk)
-Groq LLM 1 (Llama 3.1 8B Classifier: FEES, PLACEMENT, DEGREE, BUDGET, TIMELINE, COMPETITOR, etc.)
+Groq LLM 1 (Llama 3.1 8B Classifier: intent classification and suggested_search_query generation)
      ↓ (Bypasses LLM 2 if intents list is empty)
 Qdrant Vector RAG / Manager Direct Rules & Tavily Search Fallback
-     ↓ (Snippets + Guidelines context built)
-Groq LLM 2 (Llama 3.1 8B Suggestion Generator: direct response formatting)
+     ↓ (Queries RAG using suggested_search_query; falls back to Tavily using the same query)
+Local MiniLM Relevance Filter
+     ↓ (Computes cosine similarity between query and snippets; filters out snippets < 0.35)
+Groq LLM 2 (Llama 3.1 8B Suggestion Generator: direct response formatting + strict grounding rules)
      ↓ (WebSocket push containing cue pointers)
 React HUD (Chime, CSS flash glow, Jaccard overlap deduplication, Transformers.js semantic check-off)
 
@@ -76,18 +78,19 @@ Component Details
 
 5. Reflex Lane (Playbook Guidelines)
    - Status: Implemented
-   - Queries Qdrant REST Client (or local JSON mock store) using Xenova/all-MiniLM-L6-v2 embeddings of customer utterances. Alternatively, checks for manager overrides in direct_rules.json. This filters out guideline text that is irrelevant to the active classification, reducing LLM 2 prompt token overhead.
+   - Queries Qdrant REST Client (or local JSON mock store) using Xenova/all-MiniLM-L6-v2 embeddings of the LLM 1-generated suggested_search_query (resolving customer pronouns and context). Alternatively, checks for manager overrides in direct_rules.json. This filters out guideline text that is irrelevant to the active classification, reducing LLM 2 prompt token overhead.
 
-6. Hybrid Lane (Real-Time Web Search)
+6. Hybrid Lane (Real-Time Web Search & Filtering)
    - Status: Implemented
-   - Triggered when competitor is classified but the entity name is not listed in our static playbook facts.
-   - Queries the Tavily Search API and returns the top 2 content snippets, which are injected into the prompt.
+   - Triggered when competitor is classified but the entity name is not listed in our static playbook facts, or RAG match confidence is weak (all matched scores are < 0.60).
+   - Queries the Tavily Search API using the unified suggested_search_query. It parses the results and runs a local similarity check using Xenova/all-MiniLM-L6-v2. Only web snippets with a similarity score >= 0.35 are fed into LLM 2.
 
 7. Suggestion Generator (LLM 2)
    - Status: Implemented
    - Queries Groq Llama 3.1 8B using playbook guidelines and search snippets.
    - Rules: Outputs 2-3 bullets maximum, formatting responses strictly as direction cues with a single suggested respond phrase in parentheses: `(Say: "...")`.
    - Incorporates real-time facts directly into the suggested comparison phrasing.
+   - Grounding: Follows strict grounding guardrails. If web search facts do not answer the customer's specific question, it generates a fallback card directing the Rep to politely defer the answer for follow-up.
 
 8. Suggestion Deduplicator (Jaccard Overlap)
    - Status: Implemented in packages/ui/src/App.jsx

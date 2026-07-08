@@ -53,25 +53,28 @@ graph TD
 
     %% Stage 4 & 5: Classifier & early-exit
     subgraph Stage 4 & 5: Intent Classification & Early-Exit
-        LLM1 -->|Run Classification| L2[Filter NONE Intents]
+        LLM1 -->|Extract Intents & suggested_search_query| L2[Filter NONE Intents]
         L2 --> L3{Intents Empty?}
         L3 -- Yes (Customer) --> L4[Push Clear Screen Signal]
         L3 -- Yes (Rep) --> Exit3[Exit - No screen changes]
-        L3 -- No --> M1[Intent-focused Guidelines Retrieval]
+        L3 -- No --> M1[Unified Query Resolution]
     end
 
     %% Stage 6 & 7: Search & Suggestions
     subgraph Stage 6 & 7: Contextual Search & Suggestions
         M1 --> M2{Manager Direct Rule?}
         M2 -- Yes --> M3[Use Direct Rule Cue]
-        M2 -- No --> M4[Query Qdrant RAG / Local Mock]
-        M4 --> M5{Any RAG Results?}
+        M2 -- No --> M4[Query Qdrant RAG / Local Mock using Search Query]
+        M4 --> M5{Has Confident RAG Match (>= 0.60)?}
         M5 -- Yes --> M6[Assemble Prompt Context]
-        M5 -- No --> M7[Tavily Search: Pricing/Curriculum/Reviews]
-        M7 --> M6
+        M5 -- No --> M7[Tavily Search using same Search Query]
+        M7 --> M7_Filter[Local MiniLM Relevance Filter]
+        M7_Filter -->|Similarity >= 0.35| M6
+        M7_Filter -->|Similarity < 0.35| M7_Discard[Discard Web Snippets]
+        M7_Discard --> M6
         M3 --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
         M6 --> N1
-        N1 -->|Generate Bullet Suggestions| O1[WebSocket Push to UI]
+        N1 -->|Generate Grounded Suggestions / Fallbacks| O1[WebSocket Push to UI]
     end
 
     %% Stage 8 & 9: Rendering & Completion
@@ -187,20 +190,19 @@ To minimize Groq cloud API costs and reduce response latency, the system routes 
 
 ---
 
-### Stage 5: Intent Classification Cognitive Router (LLM 1) (~120ms)
+### Stage 5: Intent Classification & Search Query Generation (LLM 1) (~120ms)
 
 If the local gatekeeper funnel is bypassed, the proxy server sends the conversation history to the Groq Llama 3.1 8B Classifier (`llama-3.1-8b-instant`):
 
 1. **System Prompt Category Schema**: The classifier categorizes the utterance using shortened, topic-focused keys:
    - `FEES`, `PLACEMENT`, `DEGREE`, `BUDGET`, `TIMELINE`, `SWITCHING`, `COMPETITOR`, `BUY_SIGNAL`, `INQUIRY`, `NONE`.
-   - *Code Location*: System prompt definition is at [detector.js: L179-L214](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L179-L214).
-2. **Structured Output & Groq Call**:
-   - Resides in `queryGroq()` at [detector.js: L314-L348](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L314-L348).
-3. **Early Exit Validation**:
-   - `NONE` categories are removed via `mergeIntents()` at [detector.js: L174-L177](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L174-L177). If empty, Customer statements push a clear screen signal (`"Great job, keep going!"`), while Rep statements exit silently.
-     * *Code Location*: Exits handled in [server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L307-L330).
-
----
+   - *Code Location*: System prompt definition is at [detector.js: L186-L221](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L186-L221).
+2. **Search Query Generation**: Under instructions in the system prompt, LLM 1 generates a context-complete keyword search query (`suggested_search_query`), resolving pronouns using the sliding window context.
+3. **Structured Output & Groq Call**:
+   - Resides in `queryGroq()` at [detector.js: L331-L364](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L331-L364).
+4. **Early Exit Validation**:
+   - `NONE` categories are removed via `mergeIntents()`. If empty, Customer statements push a clear screen signal (`"Great job, keep going!"`), while Rep statements exit silently.
+     * *Code Location*: Exits handled in [server.js: L307-L330](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L307-L330).
 
 ### Stage 6: Context Retrieval & Real-Time Competitor Web Search (~150ms)
 
@@ -208,14 +210,15 @@ If active intents are identified, the proxy server retrieves supporting context:
 
 1. **Manager Direct Rule Overrides**:
    - The system queries `getDirectRule(intentCode, playbook)` to check for custom direct overrides defined by managers in `direct_rules.json`. If a direct override is found, it is used immediately, bypassing the RAG & LLM 2 pipeline.
-     * *Code Location*: [rag.js: L189-203](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/rag.js#L189-L203), referenced at [server.js: L402-411](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L402-L411).
-2. **Qdrant Vector RAG (with Local Mock Fallback)**:
-   - If no direct override exists, the system uses `Xenova/all-MiniLM-L6-v2` to vectorize the customer's utterance and queries Qdrant (`@qdrant/js-client-rest`).
-   - If `QDRANT_URL` is not set, it falls back to a local in-memory/JSON vector database (`rag_store.json`) with local cosine similarity calculation.
-     * *Code Location*: [rag.js: L116-187](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/rag.js#L116-L187), triggered at [server.js: L416-425](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L416-L425).
-3. **Real-Time Tavily Search Fallback**:
-   - If the RAG query returns no documents above the similarity threshold (`0.40`), or if an unknown competitor/entity is mentioned, the system automatically triggers a Tavily web search.
-     * *Code Location*: Tavily API search wrapper is at [server.js: L141-178](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L141-L178); triggered at [server.js: L428-460](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L428-L460).
+     * *Code Location*: [rag.js: L204-L215](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/rag.js#L204-L215), referenced at [server.js: L340-L348](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L340-L348).
+2. **Unified Query Resolution & Vector RAG**:
+   - If no direct override exists, the system uses the LLM 1-generated `suggested_search_query` (falling back to `utt.text`) to query the vector RAG database.
+   - Vectors are computed using `Xenova/all-MiniLM-L6-v2` locally to perform cosine similarity searches in the playbook partition.
+     * *Code Location*: [rag.js: L143-L199](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/rag.js#L143-L199), triggered at [server.js: L350-L364](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L350-L364).
+3. **Real-Time Tavily Search Fallback & MiniLM Relevance Filter**:
+   - If the best local RAG match score is below the confidence threshold (`0.60`), or if an unknown competitor/entity is mentioned, the system automatically triggers a Tavily web search using the *same* `suggested_search_query`.
+   - **Local Relevance Scoring**: Each retrieved web snippet is compared against the search query using the local `calculateRelevance` utility in `rag.js`. Only snippets with a similarity score >= 0.35 are combined with the local RAG guidelines into the prompt context.
+     * *Code Location*: Tavily API search wrapper is at [server.js: L78-L115](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L78-L115); triggered and filtered at [server.js: L353-L402](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L353-L402).
 
 ---
 
@@ -225,9 +228,10 @@ The aggregated guidelines, Tavily search snippets, and conversation logs are sen
 
 1. **System Prompt & Constraints**:
    - Outputs a maximum of 2 to 3 bullet points, formatted strictly as direction cues with a single suggested respond phrase in parentheses: `(Say: "...")`.
-     * *Code Location*: System prompt construction is at [server.js: L370-L389](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L370-L389).
+   - **Strict Grounding Rule**: Instructions verify if the provided guidelines or search snippets answer the customer's query. If facts are missing or irrelevant, it outputs a fallback cue card to defer answering.
+     * *Code Location*: System prompt construction is at [server.js: L413-L423](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L413-L423).
 2. **Groq Execution**:
-   - Resides in [server.js: L391-L421](file:///Users/arkapravorajkonwar/Documents/arkham/services/stt-proxy/server.js#L391-L421).
+   - Resides in [server.js: L436-L462](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L436-L462).
 
 ---
 
