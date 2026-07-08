@@ -38,11 +38,12 @@ graph TD
         
         H -- Yes --> H_QA{isRespondingToQuestion?}
         H_QA -- No --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
-        H_QA -- Yes --> G{Has Sales/Comparison Keywords?}
+        H_QA -- Yes --> I{Is Simple Greeting?}
         
-        H -- No --> I{Is Neutral Greeting / Identification?}
+        H -- No --> I
+        
         I -- Yes --> Exit1
-        I -- No --> G
+        I -- No --> G{Has Sales/Comparison Keywords in Context?}
         
         G -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
         G -- No --> ZeroShot[Local Zero-Shot Classifier]
@@ -174,19 +175,19 @@ To minimize Groq cloud API costs and reduce response latency, the system routes 
 
 1. **Step A: Question-Answering Context Resolution**:
    - Checks if the current speaker is responding to a question from the other speaker.
-     * *Code Location*: [detector.js: L246-L260](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L246-L260).
+     * *Code Location*: [detector.js: L203-L218](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L203-L218).
 2. **Step B: Filler Check (0ms)**:
-   - Filters out short, low-content filler words (e.g. *yeah, ok, mhm, no*) under 4 words, unless they are replying to a direct question.
-     * *Code Location*: [detector.js: L131-L141](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L131-L141); checked at [detector.js: L262-L268](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L262-L268).
-3. **Step C: Neutral / Greeting Check (0ms)**:
-   - Filters out greetings (*"hello, good morning"*) and administrative confirmations (*"is this Newton School?"*) which do not contain any sales or objection topics.
-     * *Code Location*: [detector.js: L143-L172](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L143-L172); checked at [detector.js: L270-L276](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L270-L276).
-4. **Step D: Sales/Comparison Keyword Bypass**:
-   - Matches words against `SALES_KEYWORDS`. Any match immediately bypasses all subsequent checks (including zero-shot) and routes directly to Groq LLM 1.
-     * *Code Location*: [detector.js: L47-L65](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L47-L65); checked at [detector.js: L278-L300](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L278-L300).
-5. **Step E: Local Zero-Shot Classifier (20ms)**:
-   - If no keywords match, the server runs a local NLI model inside the Node process (`Xenova/nli-deberta-v3-small`) to score the utterance against small talk. If the small talk score is $\ge 70\%$, the pipeline exits early.
-     * *Code Location*: [detector.js: L108-L128](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L108-L128); checked at [detector.js: L283-L299](file:///Users/arkapravorajkonwar/Documents/arkham/services/event-detector/detector.js#L283-L299).
+   - Filters out short, low-content filler words (e.g. *yeah, ok, mhm, no*) under 4 words, unless they are replying to a direct question context.
+     * *Code Location*: [detector.js: L89-L99](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L89-L99); checked at [detector.js: L220-L226](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L220-L226).
+3. **Step C: Simple Greeting Check (0ms)**:
+   - Filters out basic greetings (*"hello, hi, good morning"*) via a lightweight, fast regex check: `/^(hello|hi|hey|good morning|yo)$/`.
+     * *Code Location*: [detector.js: L101-L106](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L101-L106); checked at [detector.js: L228-L232](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L228-L232).
+4. **Step D: Sales Keyword Context Bypass**:
+   - Inspects the active context text (`textToClassify` containing the preceding question context if replying). If any playbook-specific keyword from `playbooks.json` is hit, it bypasses NLI zero-shot classification and routes directly to Groq LLM 1.
+     * *Code Location*: `hasSalesKeyword()` at [detector.js: L79-L83](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L79-L83); checked at [detector.js: L213-L219](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L213-L219).
+5. **Step E: Local Zero-Shot Semantic Filter (20ms)**:
+   - If no context keywords match, the server runs a local NLI model inside the Node process (`Xenova/nli-deberta-v3-small`) to score the text against two highly contrastive labels: `neutral greeting/brand check/small talk` vs `sales objection/business query`. If the small talk score is >= 70%, the pipeline exits early.
+     * *Code Location*: [detector.js: L66-L86](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L66-L86); checked at [detector.js: L220-L231](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/event-detector/detector.js#L220-L231).
 
 ---
 
@@ -208,9 +209,9 @@ If the local gatekeeper funnel is bypassed, the proxy server sends the conversat
 
 If active intents are identified, the proxy server retrieves supporting context:
 
-1. **Manager Direct Rule Overrides**:
-   - The system queries `getDirectRule(intentCode, playbook)` to check for custom direct overrides defined by managers in `direct_rules.json`. If a direct override is found, it is used immediately, bypassing the RAG & LLM 2 pipeline.
-     * *Code Location*: [rag.js: L204-L215](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/rag.js#L204-L215), referenced at [server.js: L340-L348](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L340-L348).
+1. **Manager Category Bypasses & Overrides**:
+   - The system inspects category configurations dynamically from `categories.json`. If an active category behavior matches `"bypass"`, it directly pushes the category's `"exactOutput"` and exits early, saving RAG and LLM 2 token latency.
+     * *Code Location*: Checked at [server.js: L319-L342](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/services/stt-proxy/server.js#L319-L342).
 2. **Unified Query Resolution & Vector RAG**:
    - If no direct override exists, the system uses the LLM 1-generated `suggested_search_query` (falling back to `utt.text`) to query the vector RAG database.
    - Vectors are computed using `Xenova/all-MiniLM-L6-v2` locally to perform cosine similarity searches in the playbook partition.
