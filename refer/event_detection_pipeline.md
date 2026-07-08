@@ -65,7 +65,7 @@ graph TD
         M1 --> M2{Manager Direct Rule?}
         M2 -- Yes --> M3[Use Direct Rule Cue]
         M2 -- No --> M4[Query Qdrant RAG / Local Mock using Search Query]
-        M4 --> M5{Has Confident RAG Match (>= 0.60)?}
+        M4 --> M5{"Has Confident RAG Match (>= 0.60)?"}
         M5 -- Yes --> M6[Assemble Prompt Context]
         M5 -- No --> M7[Tavily Search using same Search Query]
         M7 --> M7_Filter[Local MiniLM Relevance Filter]
