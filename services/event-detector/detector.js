@@ -1,68 +1,24 @@
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import { pipeline, env } from '@xenova/transformers';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 // Set the cache directory inside the local workspace to avoid sandbox file permission issues
 env.cacheDir = './.cache';
 env.allowLocalModels = false;
 
-// Standard playbooks for contextual guidelines
-const PLAYBOOKS = {
-  general: {
-    name: "General Sales Coach",
-    guidelines: "Focus on general sales intents, objection identification, and buying signals using standard sales techniques."
-  },
-  saas: {
-    name: "B2B SaaS & Tech",
-    guidelines: "Focus on B2B SaaS objections (integration issues, data security/privacy, implementation timeline, ROI proof, stakeholder alignment)."
-  },
-  insurance: {
-    name: "B2C Insurance Sales",
-    guidelines: "Focus on B2C insurance objections (premium rates, switching friction, loyalty to current carriers, trust)."
-  },
-  realestate: {
-    name: "Real Estate & Property",
-    guidelines: "Focus on real estate objections (market volatility, interest rate anxiety, neighborhood fit, inspection findings, appreciation)."
-  },
-  newtonschool: {
-    name: "Newton School Bangalore Admission Coach",
-    guidelines: "Focus on edtech enrollment goals: placements (CTC, packages, partner network), Income Share Agreements (ISA vs upfront fees), Rishihood University degree affiliation, UGC approval, and curriculum comparisons."
-  }
-};
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Compact categories map for the output schemas
-export const CATEGORY_MAP = {
-  BUDGET: "Pricing, Cost & Budget Concerns",
-  TIMELINE: "Timeline, Scheduling & Onboarding Speed",
-  SWITCHING: "Switching Providers & Contract Lock-in",
-  COMPETITOR: "Competitor Mentioned",
-  BUY_SIGNAL: "Buying Signal / Next Steps",
-  INQUIRY: "Product / General Inquiry",
-  NONE: "No Specific Objection / Topic",
-  FEES: "Fees, Financing & Scholarships",
-  PLACEMENT: "Job Placements, CTC & Career Support",
-  DEGREE: "Degree Accreditation & Rishihood University Affiliation"
-};
+// Dynamic playbooks and categories loaded from config files
+const PLAYBOOKS = JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'playbooks.json'), 'utf8'));
+const categoriesConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'categories.json'), 'utf8'));
 
-// Playbook & Business keywords to bypass zero-shot checking instantly
-const SALES_KEYWORDS = new Set([
-  'fee', 'fees', 'pricing', 'cost', 'payment', 'isa', 'income share', 
-  'installment', 'emi', 'loan', 'scholarship', 'scholarships', 'refund', 'placement', 
-  'placements', 'package', 'job', 'jobs', 'hire', 'hiring', 'salary', 'lpa', 'ctc', 'career', 
-  'degree', 'university', 'affiliation', 'ugc', 'accredited', 'rishihood',
-  'integration', 'security', 'timeline', 'objection', 'competitor', 'competitors',
-  'salesforce', 'hubspot', 'zoho', 'demo', 'trial', 'api', 'contract', 'price',
-  'masai', 'scaler', 'upgrad', 'simplilearn', 'book', 'connect', 'schedule', 'call', 
-  'meet', 'meeting', 'test', 'aptitude', 'enroll', 'register', 'calendar', 'tuesday', 
-  'monday', 'wednesday', 'thursday', 'friday', 'next week', 'course', 'curriculum', 
-  'syllabus', 'classes', 'class', 'learn', 'learning', 'program',
-  'compare', 'comparison', 'vs', 'versus', 'alternative', 'alternatives', 
-  'differ', 'difference', 'different', 'other', 'others', 'another', 
-  'better', 'worse', 'cheaper', 'cheap', 'expensive', 'pricey', 'costly', 
-  'coding ninjas', 'codingninjas', 'ninjas', 'geekster', 'prepbytes', 
-  'codingblocks', 'coding blocks', 'udemy', 'coursera', 'edx', 'great learning', 
-  'greatlearning', 'ineuron', 'pw skills', 'pwskills'
-]);
+export const CATEGORY_MAP = Object.fromEntries(
+  Object.entries(categoriesConfig).map(([key, val]) => [key, val.label])
+);
 
 // Common fillers & agreement words for gatekeeper exit
 const FILLER_WORDS = new Set([
@@ -102,7 +58,9 @@ export class EventDetector extends EventEmitter {
   hasSalesKeyword(text) {
     if (!text) return false;
     const lowerText = text.toLowerCase();
-    return Array.from(SALES_KEYWORDS).some(kw => lowerText.includes(kw));
+    const chosenPlaybook = PLAYBOOKS[this.playbook] || PLAYBOOKS.general;
+    const keywords = chosenPlaybook.salesKeywords || [];
+    return keywords.some(kw => lowerText.includes(kw));
   }
 
   async isZeroShotSmallTalk(text) {
@@ -111,12 +69,12 @@ export class EventDetector extends EventEmitter {
       if (!classifier) return false;
 
       const candidateLabels = [
-        'small talk or pleasantry or greeting',
-        'sales course admission inquiry or objection'
+        "neutral greeting, brand check, names check, small talk, pleasantry, callback request",
+        "sales objection, business question, course details, fees, placements, credentials"
       ];
       
       const result = await classifier(text, candidateLabels);
-      const smallTalkIndex = result.labels.indexOf('small talk or pleasantry or greeting');
+      const smallTalkIndex = result.labels.indexOf("neutral greeting, brand check, names check, small talk, pleasantry, callback request");
       const score = result.scores[smallTalkIndex];
       
       console.log(`[EventDetector] Zero-Shot check for "${text}": Small Talk Score = ${(score * 100).toFixed(1)}%`);
@@ -140,35 +98,11 @@ export class EventDetector extends EventEmitter {
     return words.every(word => FILLER_WORDS.has(word));
   }
 
-  // Early-exit check for basic greetings, names, or neutral school identification checks (0ms)
-  isNeutralOrGreeting(text) {
-    if (!text) return true;
-    const lowerText = text.toLowerCase().trim().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
-    if (!lowerText) return true;
-    
-    const neutralPatterns = [
-      /^(hello|hi|hey|good morning|good afternoon|good evening|yo)$/,
-      /^is this\s+(newton\s+school|newton|newton\s+school\s+of\s+technology)/,
-      /^am i speaking\s+(to|with)\s+(newton\s+school)/,
-      /^who\s+is\s+this/,
-      /^can you hear me/,
-      /^is anyone there/,
-      /^yes\s+is\s+this\s+(newton\s+school|newton|newton\s+school\s+of\s+technology)/
-    ];
-
-    if (neutralPatterns.some(pattern => pattern.test(lowerText))) {
-      return true;
-    }
-    
-    if (lowerText.includes("newton school") && (lowerText.startsWith("hello") || lowerText.startsWith("hi") || lowerText.includes("is this") || lowerText.includes("am i speaking"))) {
-      // Check if it has any objection keywords. If not, it is neutral.
-      const hasObjectionKeyword = lowerText.match(/(fee|fees|pricing|cost|payment|isa|income share|installment|emi|loan|scholarship|refund|placement|package|job|hire|hiring|salary|lpa|ctc|placement cells|career|pharmacy|govt|ugc|affiliation|degree|university|recognition|accredited|rishihood)/i);
-      if (!hasObjectionKeyword) {
-        return true;
-      }
-    }
-
-    return false;
+  // Early-exit check for basic greetings (0ms)
+  isSimpleGreeting(text) {
+    if (!text) return false;
+    const cleanText = text.toLowerCase().trim().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+    return /^(hello|hi|hey|good morning|good afternoon|good evening|yo|hey there)$/.test(cleanText);
   }
 
   // Filters out neutral or NONE classifications
@@ -179,22 +113,19 @@ export class EventDetector extends EventEmitter {
   // Construct the system prompt for the 8B parameter model
   getSystemPrompt() {
     const chosenPlaybook = PLAYBOOKS[this.playbook] || PLAYBOOKS.general;
+    
+    // Dynamically build the category schema list
+    const schemaLines = Object.entries(categoriesConfig)
+      .map(([key, value]) => `- ${key}: ${value.description}`)
+      .join('\n');
+
     return `You are a high-performance sales conversation router. Your task is to analyze the speaker's utterance (Rep or Customer) in a sales call and classify the underlying sales intent, objection, or proactive topic transition.
 
 Configured Playbook: "${chosenPlaybook.name}"
 Playbook Focus Guidelines: ${chosenPlaybook.guidelines}
 
 Classification Schema ("cat" code):
-- BUDGET: Concerns or questions about cost, pricing, fees, expensive subscriptions, or discount requests.
-- TIMELINE: Concerns or questions about implementation timeline, onboarding speed, scheduling, class timing, or launch delays.
-- SWITCHING: Friction or questions about migrating from a current provider, switching career tracks, or vendor lock-in contracts.
-- COMPETITOR: Mention of competitor platforms or schools (Salesforce, HubSpot, Masai School, Scaler, Coding Ninjas, etc.).
-- BUY_SIGNAL: Asks for next steps, scheduling, booking a session, taking a free aptitude/scholarship test, or explicitly agreeing to a Rep's direct next-step proposal.
-- INQUIRY: Standard product, course, curriculum, syllabus, or general questions.
-- FEES: Concerns or questions about course fees, ISA terms, loan EMIs, payment structures, or scholarship details (Newton School context).
-- PLACEMENT: Concerns or questions about job placement support, CTC packages, LPA expectations, or partner networks (Newton School context).
-- DEGREE: Concerns or questions about degree credibility, UGC approval, or Rishihood University affiliation (Newton School context).
-- NONE: General backchanneling/agreement (e.g. "yeah" when Rep is talking), small talk, basic greetings, or neutral identification checks.
+${schemaLines}
 
 You MUST respond with a valid JSON object strictly adhering to this compressed format:
 {
@@ -204,13 +135,15 @@ You MUST respond with a valid JSON object strictly adhering to this compressed f
       "conf": 0.0-1.0,
       "entity": "EXTRACTED_ENTITY_OR_NULL"
     }
-  ]
+  ],
+  "suggested_search_query": "CONCISE_KEYWORDS_FOR_WEB_AND_RAG_SEARCH_OR_NULL"
 }
 
 Ensure:
 1. Short output generation. Keep intents array to only active categories.
 2. Return ONLY JSON. Do not include markdown formatting or explanation outside JSON.
-3. For the "entity" field, extract the specific subject name from the text (e.g., if category is COMPETITOR, extract the specific name of the competitor mentioned, even if not listed in the examples. If no specific entity name is mentioned, return null).`;
+3. For the "entity" field, extract the specific subject name from the text (e.g., if category is COMPETITOR, extract the specific name of the competitor mentioned, even if not listed in the examples. If no specific entity name is mentioned, return null).
+4. For the "suggested_search_query" field, if the intents list has valid categories (not NONE), formulate a highly concise search query (3-6 keywords) designed to find the answer to the customer's specific question or objection. Resolve any pronouns (like "it", "they") to their context (e.g. if customer says "is it UGC approved", make query "Newton School B.Tech UGC approval"). If no search is needed or category is NONE, return null.`;
   }
 
   // Formats conversation history sliding window for context resolution
@@ -243,24 +176,24 @@ Ensure:
       timestamp
     });
 
-    // Find the last Rep utterance in history to see if it was a question
-    let lastRepUtterance = null;
-    const repId = repSpeakerId !== null ? String(repSpeakerId) : "0";
+    // Find the last utterance from the OTHER speaker in history to see if it was a question
+    let lastOtherUtterance = null;
+    const currentSpeakerStr = String(utterance.speaker);
     for (let i = history.length - 1; i >= 0; i--) {
-      if (String(history[i].speaker) === repId) {
-        lastRepUtterance = history[i].text;
+      if (String(history[i].speaker) !== currentSpeakerStr) {
+        lastOtherUtterance = history[i].text;
         break;
       }
     }
 
     let isRespondingToQuestion = false;
-    if (lastRepUtterance) {
-      const cleanRepText = lastRepUtterance.trim();
-      isRespondingToQuestion = cleanRepText.endsWith('?') || 
-                               /\b(would|should|could|can|do|does|did|is|are|shall|will|how|what|why|where|who)\b.*\b(you|we|i|it|this|that|go|like|want|start|book|take|proceed)\b/i.test(cleanRepText);
+    if (lastOtherUtterance) {
+      const cleanOtherText = lastOtherUtterance.trim();
+      isRespondingToQuestion = cleanOtherText.endsWith('?') || 
+                               /\b(would|should|could|can|do|does|did|is|are|shall|will|how|what|why|where|who)\b.*\b(you|we|i|it|this|that|go|like|want|start|book|take|proceed)\b/i.test(cleanOtherText);
     }
 
-    // 1. GATEKEEPER CHECK: Early exit on filler text (0ms latency), unless responding to a Rep question
+    // 1. GATEKEEPER CHECK: Early exit on filler text (0ms latency), unless responding to a question
     if (this.isFillerUtterance(utterance.text) && !isRespondingToQuestion) {
       console.log(`[EventDetector] Early exit (0ms) on filler text: "${utterance.text}"`);
       const event = { ...makeEvent([]), source: 'gatekeeper' };
@@ -268,34 +201,47 @@ Ensure:
       return event;
     }
 
-    // 1.5. NEUTRAL/GREETING CHECK: Early exit on greeting/identification questions (0ms latency)
-    if (this.isNeutralOrGreeting(utterance.text)) {
-      console.log(`[EventDetector] Early exit (0ms) on neutral/greeting check: "${utterance.text}"`);
+    // 1.5. SIMPLE GREETING CHECK: Early exit on pure simple greetings (0ms latency)
+    if (this.isSimpleGreeting(utterance.text)) {
+      console.log(`[EventDetector] Early exit (0ms) on simple greeting: "${utterance.text}"`);
       const event = { ...makeEvent([]), source: 'neutral_filter' };
       this.emit('event', { ...event, isReflex: true });
       return event;
     }
 
-    // 1.7. LOCAL ZERO-SHOT CHECK: Early exit on complex small talk
-    if (!isRespondingToQuestion && !this.hasSalesKeyword(utterance.text)) {
-      console.log(`[EventDetector] Running local Zero-Shot Classifier check...`);
-      const isSmallTalk = await this.isZeroShotSmallTalk(utterance.text);
-      if (isSmallTalk) {
-        console.log(`[EventDetector] Early exit (local zero-shot) on small talk: "${utterance.text}"`);
-        const event = { ...makeEvent([]), source: 'local_zeroshot' };
-        this.emit('event', { ...event, isReflex: true });
-        return event;
+    // 1.7. LOCAL ZERO-SHOT CHECK: Early exit on complex small talk (bypassed ONLY if sales keywords are present in active context)
+    const textToClassify = isRespondingToQuestion && lastOtherUtterance
+      ? `${lastOtherUtterance} ${utterance.text}`
+      : utterance.text;
+
+    if (!this.hasSalesKeyword(textToClassify)) {
+      // If they are answering a question with a short filler/agreement word, do NOT run zero-shot
+      const isShortFiller = this.isFillerUtterance(utterance.text);
+      if (isRespondingToQuestion && isShortFiller) {
+        console.log(`[EventDetector] Bypassing zero-shot for direct question response: "${utterance.text}"`);
+      } else {
+        console.log(`[EventDetector] Running local Zero-Shot Classifier check...`);
+        const isSmallTalk = await this.isZeroShotSmallTalk(textToClassify);
+        if (isSmallTalk) {
+          console.log(`[EventDetector] Early exit (local zero-shot) on small talk: "${utterance.text}"`);
+          const event = { ...makeEvent([]), source: 'local_zeroshot' };
+          this.emit('event', { ...event, isReflex: true });
+          return event;
+        }
       }
     }
 
     // 2. COGNITIVE ROUTER (Groq Llama 3.1 8B)
     let llmIntents = [];
+    let suggestedSearchQuery = null;
     const promptContext = this.formatContext(history, utterance, repSpeakerId);
 
     if (this.groqApiKey && this.groqApiKey !== "placeholder") {
       try {
         console.log(`[EventDetector] Routing classification query to Groq (Llama 3.1 8B)...`);
-        llmIntents = await this.queryGroq(promptContext);
+        const result = await this.queryGroq(promptContext);
+        llmIntents = result.intents || [];
+        suggestedSearchQuery = result.suggested_search_query || null;
       } catch (err) {
         console.error(`[EventDetector] Groq classification failed:`, err.message);
       }
@@ -305,7 +251,11 @@ Ensure:
 
     // Filter neutral intents
     const finalizedIntents = this.mergeIntents(llmIntents);
-    const finalizedEvent = { ...makeEvent(finalizedIntents), source: 'cognitive' };
+    const finalizedEvent = { 
+      ...makeEvent(finalizedIntents), 
+      source: 'cognitive', 
+      suggested_search_query: suggestedSearchQuery 
+    };
 
     this.emit('event', { ...finalizedEvent, isReflex: false });
     return finalizedEvent;
@@ -392,17 +342,26 @@ Ensure:
     try {
       const cleanJson = jsonString.trim();
       const parsed = JSON.parse(cleanJson);
+      
+      let intents = [];
+      let suggested_search_query = null;
+      
       if (parsed && Array.isArray(parsed.intents)) {
-        // Validate each item
-        return parsed.intents.map(item => ({
+        intents = parsed.intents.map(item => ({
           cat: String(item.cat || "NONE").toUpperCase(),
           conf: typeof item.conf === 'number' ? item.conf : 0.8,
           entity: item.entity ? String(item.entity) : null
         }));
       }
+      
+      if (parsed && parsed.suggested_search_query) {
+        suggested_search_query = String(parsed.suggested_search_query);
+      }
+      
+      return { intents, suggested_search_query };
     } catch (e) {
       console.error(`[EventDetector] Failed to parse JSON content: "${jsonString}"`, e.message);
     }
-    return [];
+    return { intents: [], suggested_search_query: null };
   }
 }
