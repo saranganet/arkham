@@ -19,7 +19,7 @@ flowchart TD
     C -->|Yes| Exit2[Exit: Keep Screen Cards]
     C -->|No| D{Has Playbook Keywords?}
     
-    D -->|Yes (Objection Likely)| F[Route to LLM 1 Classifier]
+    D -->|"Yes (Objection Likely)"| F[Route to LLM 1 Classifier]
     D -->|No| E[Run Local Zero-Shot NLI]
     
     E --> G{"Small Talk Score > 70%?"}
