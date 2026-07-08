@@ -31,18 +31,12 @@ graph TD
         SER_Map -->|Inject emotion & emotionScore| E
     end
 
-    %% Stage 3: Unified Multi-Keyword Scan & Gatekeeper Funnel
-    subgraph Stage 3: Unified Multi-Keyword Scan & Gatekeeper
+    %% Stage 3: Unified Keyword Scan & Gatekeeper Funnel
+    subgraph Stage 3: Unified Keyword Scan & Gatekeeper
         E -->|Scan Bypasses & Core Safeguards| K_Scan{Any Matched Keywords?}
         
-        K_Scan -->|Yes| K_Exact{Any Exact Matches?}
-        
-        K_Exact -->|Yes| K_Direct[Push Exact Output Cards directly to UI]
-        K_Direct --> K_Mixed{Any Guideline or AI Matches?}
-        K_Mixed -->|No| Exit1[Exit Pipeline - 0ms AI Latency]
-        K_Mixed -->|Yes| LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
-        
-        K_Exact -->|No| LLM1
+        K_Scan -->|Yes| SetBypass[Flag NLI Zero-Shot Bypass & Collect Keyword Guidelines]
+        SetBypass --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
         
         K_Scan -->|No| H{Is Filler Utterance?}
         H -->|Yes| H_QA{isRespondingToQuestion?}
@@ -61,28 +55,31 @@ graph TD
     subgraph Stage 4 & 5: Intent Classification & Early-Exit
         LLM1 -->|Extract Intents & suggested_search_query| L2[Filter NONE Intents]
         L2 --> L3{Intents Empty?}
-        L3 -- Yes (Customer) --> L4[Push Clear Screen Signal]
-        L3 -- Yes (Rep) --> Exit3[Exit - No screen changes]
-        L3 -- No --> M1[Unified Query Resolution]
+        
+        L3 -- Yes (Customer/Rep) --> ExitNone[Exit Safety Gate - Clear or Keep Screen Cards]
+        L3 -- No --> M1[Gather Category Guidelines]
     end
 
     %% Stage 6 & 7: Search & Suggestions
     subgraph Stage 6 & 7: Contextual Search & Suggestions
-        M1 --> M2{Category Override behavior?}
-        M2 -- bypass --> M3[Use Exact Output override]
-        M2 -- guideline/ai --> M4[Query Qdrant RAG / Local Mock using Search Query]
-        M4 --> M5{"Has Confident RAG Match (>= 0.60)?"}
-        M5 -- Yes --> M6[Assemble Prompt Context]
-        M5 -- No --> M7[Tavily Search using same Search Query]
-        M7 --> M7_Filter[Local MiniLM Relevance Filter]
-        M7_Filter -->|Similarity >= 0.35| M6
-        M7_Filter -->|Similarity < 0.35| M7_Discard[Discard Web Snippets]
-        M7_Discard --> M6
+        M1 --> MergeGuidelines[Merge Category & Keyword Guidelines]
+        MergeGuidelines --> QueryRAG[Query Vector RAG using Search Query]
+        QueryRAG --> RAG_Check{"Has Confident RAG Match (>= 0.60)?"}
         
-        M6 --> M8[Inject Custom Bypasses & Category Guidelines]
-        M3 --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
-        M8 --> N1
-        N1 -->|Generate Grounded Suggestions / Fallbacks| O1[WebSocket Push to UI]
+        RAG_Check -- Yes --> AssemblePrompt[Assemble Prompt Context]
+        RAG_Check -- No --> WebSearch{Is Public Category?}
+        
+        WebSearch -- Yes --> TavilySearch[Tavily Search Fallback]
+        TavilySearch --> TavilyFilter[Local MiniLM Relevance Filter]
+        TavilyFilter -->|Relevance >= 0.35| AssemblePrompt
+        TavilyFilter -->|Relevance < 0.35| DiscardTavily[Discard Web Snippets]
+        DiscardTavily --> AssemblePrompt
+        
+        WebSearch -- No --> AssemblePrompt
+        
+        AssemblePrompt --> InjectGuidelines[Inject Combined Guidelines into Prompt]
+        InjectGuidelines --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
+        N1 -->|Generate Dynamic Suggestions / Fallbacks| O1[WebSocket Push to UI]
     end
 
     %% Stage 8 & 9: Rendering & Completion
