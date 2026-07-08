@@ -97,10 +97,11 @@ Component Details
    - Compares incoming cards against active cards on screen using a Jaccard word-similarity index.
    - Ignores filler words and maps currency variations (e.g. lakh, rs). If similarity is > 55%, the card is discarded to prevent alert fatigue.
 
-9. Suggestion Check-off (Semantic Completion)
-   - Status: Implemented in packages/ui/src/App.jsx
-   - Generates local embeddings of Rep's spoken sentences using Xenova/all-MiniLM-L6-v2.
-   - Computes cosine similarity against active suggestions. If > 0.65, marks the card as completed and slides it off screen.
+9. Suggestion HUD layout & Check-off (Inverted 2-Card Timeline)
+   - Status: Implemented in packages/ui/src/App.jsx & App.css
+   - Displays exactly 2 cards in a stacked layout: Slot 1 (Current Card - top, glowing pulse, 100% opacity) and Slot 2 (Previous Card - bottom, scaled to 0.95, dimmed to 40% opacity).
+   - Exit transition: When a new card is added, the old Slot 2 card slides out downward using `@keyframes slideOutDown`.
+   - Completion: Computes cosine similarity between Rep's spoken sentence embeddings and card singlePhrases. If similarity > 0.65, marks card as completed.
 
 ---
 

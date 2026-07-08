@@ -253,19 +253,19 @@ The aggregated guidelines, Tavily search snippets, and conversation logs are sen
 
 ---
 
-### Stage 9: Closing the Loop: Semantic Check-off & Auto-Scrolling Focus Queue
+### Stage 9: Closing the Loop: Semantic Check-off & Inverted 2-Card Cascade
 
-As the Sales Rep speaks, the system automatically checks off items as they say them, and automatically scrolls the checklist timeline to center the active focus:
+As the Sales Rep speaks, the system automatically checks off items as they say them, and transitions the layout using a stacked cascade:
 
 1. **Local Browser Embedder**:
    - Loads a quantized, INT8 version of the **`all-MiniLM-L6-v2`** model on mount.
-     * *Code Location*: [App.jsx: L107-L124](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L107-L124).
+     * *Code Location*: [App.jsx: L107-L124](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/packages/ui/src/App.jsx#L107-L124).
 2. **Cosine Similarity Helper**:
    - Computes cosine similarity between Rep's spoken vector and target suggestion cards.
-     * *Code Location*: [App.jsx: L141-L155](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L141-L155).
+     * *Code Location*: [App.jsx: L141-L155](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/packages/ui/src/App.jsx#L141-L155).
 3. **Semantic Completion Engine Loop**:
    - If similarity > 0.65, marks cards completed.
-     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L199-L266](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L199-L266).
-4. **Auto-scrolling Focus Queue**:
-   - Keeps the first incomplete card (`active-cue-card`) dynamically centered in the timeline scroll panel, scrolling past completed/faded cards smoothly.
-     * *Code Location*: Scroll hook at [App.jsx: L92-L98](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L92-L98) and active card tagging/scrolling container rendering at [App.jsx: L1101-L1130](file:///Users/arkapravorajkonwar/Documents/arkham/packages/ui/src/App.jsx#L1101-L1130).
+     * *Code Location*: Embedding generation and check-off logic is at [App.jsx: L200-L266](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/packages/ui/src/App.jsx#L200-L266).
+4. **Inverted 2-Card Cascading Layout**:
+   - Only the last 2 cue cards from `focusQueue` are active. Slot 1 (Current Card) is highlighted with an alert border pulse. Slot 2 (Previous Card) is scaled down to 0.95 and set to 40% opacity. Cards transition downward, with discarded cards sliding out via `@keyframes slideOutDown`.
+     * *Code Location*: Rendering logic at [App.jsx: L1117-L1155](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/packages/ui/src/App.jsx#L1117-L1155), CSS transitions at [App.css: L1388-L1442](file:///Users/arkapravorajkonwar/Documents/bruh/arkham/packages/ui/src/App.css#L1388-L1442).
