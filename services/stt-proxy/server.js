@@ -6,7 +6,9 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { TranscriptAggregator } from "../transcript-aggregator/Aggregator.js";
-import { EventDetector, CATEGORY_MAP } from "../event-detector/detector.js";
+import { EventDetector, CATEGORY_MAP, CORE_SALES_KEYWORDS } from "../event-detector/detector.js";
+import { pipeline } from "@xenova/transformers";
+import { queryRAG, calculateRelevance } from "./rag.js";
 
 // Load environment variables
 dotenv.config();
@@ -31,112 +33,42 @@ if (!process.env.GROQ_API_KEY) {
   console.warn("WARNING: GROQ_API_KEY is not defined. AI suggestions will fail.");
 }
 
-// Playbook configurations for dynamic prompt generation
-const PLAYBOOKS = {
-  general: {
-    name: "General Sales Coach",
-    guidelines: "You use a hybrid framework of PAS (Problem, Agitation, Solution) and EVC (Empathy, Value, Close)."
-  },
-  saas: {
-    name: "B2B SaaS & Tech",
-    guidelines: `Focus on B2B SaaS objections (integration issues, data security/privacy, implementation timeline, ROI proof, stakeholder alignment). 
-Use techniques like Value Selling, objection loops (Acknowledge, Clarify, Validate, Pivot). 
-Focus on explaining ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.`
-  },
-  insurance: {
-    name: "B2C Insurance Sales",
-    guidelines: `Focus on B2C insurance objections (premium rates, switching friction, loyalty to current carriers, trust).
-Use techniques like highlighting the cost of being underinsured, bundling discounts (auto + home + life), and effortless switching assistance.
-Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability.`
-  },
-  realestate: {
-    name: "Real Estate & Property",
-    guidelines: `Focus on real estate objections (market volatility, interest rate anxiety, neighborhood fit, inspection findings, long-term appreciation).
-Highlight the value of building equity, localized neighborhood growth trends, and strategies like 'marry the house, refinance the rate'.`
-  },
-  newtonschool: {
-    name: "Newton School Bangalore Admission Coach",
-    guidelines: `You are the admission coach for Newton School Bangalore. Assist the Rep in responding to candidate objections using the official training doc.
-    
-FACTUAL SALES MANUAL CUES:
-- Base Pitch: Placement-oriented DS and AI program with lifetime placement support. Excel, SQL, Python, ML. Potential salary: 25 LPA+. MNCs: Amazon, Flipkart, Meesho, IBM. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). Unlimited referrals. MWF 9 pm - 11 pm live classes.
-- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February). 
-- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School).
-- Competitor Objections (Simplilearn/Intellipaat/Cheaper 60k course): Highlight instructor quality (Google/Amazon experts), lifetime placement support (Subhadip Das case), and company-specific grooming sessions before interview rounds. If competitor is expensive, compare USPs directly to show value. If competitor is aligned, connect with similar alum for trust.
-- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).
-- Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories.
+import fs from "fs";
 
-STRICT GENERATION RULE:
-Do not write long text blocks. Output concise pointers, exact numbers (e.g., 1.85L, 6500/mo, 25 LPA), and concrete student stories. Reps need facts and triggers to construct their own answers, not scripts.`
+// Playbook, Category, and Keyword Bypass configurations loaded dynamically from shared configuration folder
+const PLAYBOOKS = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../event-detector/config/playbooks.json"), "utf8"));
+const categoriesConfig = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../event-detector/config/categories.json"), "utf8"));
+const keywordBypasses = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../event-detector/config/keyword_bypasses.json"), "utf8"));
+
+// Category behavior configuration helpers
+const getCategoryBehavior = (catKey, playbookId) => {
+  const config = categoriesConfig[catKey];
+  if (!config) return "ai";
+  if (config.behavior && typeof config.behavior === "object") {
+    return config.behavior[playbookId] || config.behavior.default || "ai";
   }
+  return config.behavior || "ai";
 };
 
-// Mapped playbook guidelines for LLM 2 prompt minimization
-const PLAYBOOK_FACTS = {
-  newtonschool: {
-    FEES: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
-    BUDGET: "- Fees & Financing: Course price 2.25L. NSDC Interview + Test scholarship brings price down to 1.85L. EMI options up to 36 months starting at 6500/month. No payment in month 1 (e.g. start January, pay February).",
-    PLACEMENT: "- Placement Objections: NS provides mentorship + grooming. Student must commit 3-4 hours/day. If someone claims lifetime support is a scam, cite Subhadip Das (got 1st and 2nd jobs via Newton School). Placements: CTC packages 25 LPA+; MNCs: Amazon, Flipkart, Meesho, IBM.",
-    DEGREE: "- Degree Affiliation: cs & ai B.Tech is fully UGC-accredited via Rishihood University degree affiliation.",
-    COMPETITOR: "- Competitor Objections (Simplilearn/Intellipaat/Cheaper 60k course): Highlight instructor quality (Google/Amazon experts), lifetime placement support (Subhadip Das case), and company-specific grooming sessions before interview rounds. If competitor is expensive, compare USPs directly to show value. If competitor is aligned, connect with similar alum for trust.",
-    BUY_SIGNAL: "- Next Steps Closes: Free 45-min aptitude test (logical, English, no prep) to determine scholarship; or career counseling session (no purchase commitment).",
-    INQUIRY: "- Base Pitch & Curriculum: Excel, SQL, Python, ML. Doubt support: 1:1 sessions with subject experts. Referral pool after 4 months (grooming, resume optimization). MWF 9 pm - 11 pm live classes. Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories.",
-    TIMELINE: "- Admissions Timeline & Commitment: Classes MWF 9 pm - 11 pm live. Student must commit 3-4 hours/day. Next steps: Free 45-min aptitude test to determine scholarship.",
-    SWITCHING: "- Career Switch / Govt Job Prep: Govt job prep has cv gap risks and limited options if it fails. Switch to corporate data side now. Compare LPA/CTC trajectories."
-  },
-  saas: {
-    BUDGET: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
-    TIMELINE: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
-    SWITCHING: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
-    COMPETITOR: "- Competitor Objections: Salesforce (takes 6 months, cost double; we go live in 2 weeks), HubSpot (user-friendly but custom object limits scale block), Zoho (highly custom but setup friction).",
-    BUY_SIGNAL: "- Next Steps: Book a 15-minute setup call next Tuesday to configure your workspace sandbox.",
-    INQUIRY: "- General Inquiry: Focus on B2B SaaS guidelines, ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies.",
-    FEES: "- Budget/Pricing: Handle price objections via ROI. Acknowledge and redirect to cost-efficiencies.",
-    PLACEMENT: "- Timeline/Onboarding: Guarantee rapid onboarding. We handle all migration and onboarding in less than 2 weeks.",
-    DEGREE: "- Switching Friction: Value Selling. Explain ease of deployment, security standards (SOC2, GDPR), integration flexibility, and long-term cost efficiencies."
-  },
-  insurance: {
-    BUDGET: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage, deductibles adjustment, and long-term stability. Bundling discounts (auto + home + life).",
-    TIMELINE: "- Timeline: Effortless switching assistance. Guarantee quick response time.",
-    SWITCHING: "- Switching Friction: Effortless switching assistance. Highlight the cost of being underinsured.",
-    COMPETITOR: "- Competitor: Effortless switching assistance. Compare rates and deductibles.",
-    BUY_SIGNAL: "- Next Steps: Free quote review or schedule a follow-up call.",
-    INQUIRY: "- General Inquiry: Explain coverage, deductibles adjustment, bundling options.",
-    FEES: "- Budget/Pricing: Acknowledge rate concerns and redirect to custom coverage.",
-    PLACEMENT: "- General guidelines: Focus on B2C insurance objections.",
-    DEGREE: "- General guidelines: Focus on B2C insurance objections."
-  },
-  realestate: {
-    BUDGET: "- Budget/Pricing: Marry the house and refinance the rate later. Secure the property price today. Address interest rate anxiety.",
-    TIMELINE: "- Timeline/Fit: Highlight localized neighborhood growth trends, neighborhood fit, inspection findings, appreciation.",
-    SWITCHING: "- Switching Friction: Highlight appreciation of current vs new property. Address equity building.",
-    COMPETITOR: "- Competitor: Highlight localized neighborhood growth trends, building equity, appreciation.",
-    BUY_SIGNAL: "- Next Steps: Book home tour, schedule site visit.",
-    INQUIRY: "- General Inquiry: Highlight localized neighborhood growth trends, neighborhood fit, appreciation.",
-    FEES: "- Budget/Pricing: Marry the house and refinance the rate later.",
-    PLACEMENT: "- General guidelines: Focus on real estate objections.",
-    DEGREE: "- General guidelines: Focus on real estate objections."
+const getCategoryExactOutput = (catKey, playbookId) => {
+  const config = categoriesConfig[catKey];
+  if (!config) return null;
+  if (config.exactOutput && typeof config.exactOutput === "object") {
+    return config.exactOutput[playbookId] || config.exactOutput.default || null;
   }
+  return config.exactOutput || null;
 };
 
-// Mappings retrieval helper
-function getRelevantPlaybookFacts(playbook, intents) {
-  const facts = [];
-  const pFacts = PLAYBOOK_FACTS[playbook] || {};
-  
-  for (const intent of intents) {
-    if (pFacts[intent.cat]) {
-      facts.push(pFacts[intent.cat]);
-    }
+const getCategoryGuidelineText = (catKey, playbookId) => {
+  const config = categoriesConfig[catKey];
+  if (!config) return null;
+  if (config.guidelineText && typeof config.guidelineText === "object") {
+    return config.guidelineText[playbookId] || config.guidelineText.default || null;
   }
-  
-  // If no specific fact maps, fallback to general guidelines
-  if (facts.length === 0) {
-    return PLAYBOOKS[playbook]?.guidelines || PLAYBOOKS.general.guidelines;
-  }
-  
-  return facts.join("\n");
-}
+  return config.guidelineText || null;
+};
+
+
 
 async function fetchTavilySearch(query) {
   const apiKey = process.env.TAVILY_API_KEY;
@@ -144,7 +76,7 @@ async function fetchTavilySearch(query) {
     console.warn("[Tavily] TAVILY_API_KEY is not set or placeholder. Skipping web search.");
     return null;
   }
-  
+
   try {
     console.log(`[Tavily] Executing search query: "${query}"...`);
     const response = await fetch('https://api.tavily.com/search', {
@@ -159,17 +91,16 @@ async function fetchTavilySearch(query) {
         max_results: 2
       })
     });
-    
+
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
       console.error(`[Tavily] API returned status ${response.status}: ${errText}`);
       return null;
     }
-    
+
     const data = await response.json();
     if (data && Array.isArray(data.results)) {
-      const snippets = data.results.map(r => `Source: ${r.title} (${r.url})\nContent: ${r.content}`).join("\n\n");
-      return snippets;
+      return data.results;
     }
   } catch (err) {
     console.error(`[Tavily] Request failed:`, err.message);
@@ -195,7 +126,7 @@ const REFLEX_SUGGESTIONS = {
 
 function getReflexSuggestion(intents, playbook) {
   const suggestions = [];
-  
+
   for (const intent of intents) {
     if (intent.cat === "COMPETITOR" && intent.entity) {
       const comp = intent.entity.toLowerCase();
@@ -215,9 +146,45 @@ function getReflexSuggestion(intents, playbook) {
       suggestions.push(REFLEX_SUGGESTIONS.BUY_SIGNAL);
     }
   }
-  
+
   if (suggestions.length === 0) return null;
   return suggestions.join("\nTHEN\n");
+}
+
+// Pre-load local Speech Emotion Recognition model
+console.log("Loading local Speech Emotion Recognition model (onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX)...");
+const audioClassifier = await pipeline("audio-classification", "onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX", {
+  quantized: true,
+  cache_dir: "./.cache"
+});
+console.log("✓ Speech Emotion Recognition model pre-loaded successfully!");
+
+function getAudioSlice(samples, startTime, endTime) {
+  const startIdx = Math.floor(startTime * 16000);
+  const endIdx = Math.floor(endTime * 16000);
+  const clampedStart = Math.max(0, Math.min(startIdx, samples.length - 1));
+  const clampedEnd = Math.max(clampedStart, Math.min(endIdx, samples.length));
+  return samples.slice(clampedStart, clampedEnd);
+}
+
+function mapEmotionLabel(rawLabel) {
+  const upper = rawLabel.toUpperCase();
+  switch (upper) {
+    case "NEUTRAL":
+      return "Calm";
+    case "HAPPY":
+      return "Happy";
+    case "ANGRY":
+      return "Agitated";
+    case "SAD":
+      return "Sad";
+    case "FEAR":
+      return "Anxious";
+    case "DISGUST":
+      return "Irritated";
+    default:
+      return upper.charAt(0) + upper.slice(1).toLowerCase();
+  }
 }
 
 wss.on("connection", async (ws, req) => {
@@ -227,34 +194,22 @@ wss.on("connection", async (ws, req) => {
   let conversationHistory = []; // Array of { role: "Rep" | "Customer", text: string }
   let repSpeakerId = null; // We don't know who the rep is until frontend tells us
 
+  // Raw Audio samples buffers for speech emotion recognition
+  let repAudioSamples = [];
+  let customerAudioSamples = [];
+
   // No cooldown active (using paid key)
 
   // Parse query parameters
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const model = url.searchParams.get("model") || "nova-3";
   const language = url.searchParams.get("language") || "en-US";
-  const smartFormat = url.searchParams.get("smart_format") !== "false"; 
-  const interimResults = url.searchParams.get("interim_results") !== "false"; 
-  const diarize = url.searchParams.get("diarize") !== "false"; // Default true for prototype
-  const multichannel = url.searchParams.get("multichannel") === "true";
-  const channels = parseInt(url.searchParams.get("channels") || "1", 10);
+  const smartFormat = url.searchParams.get("smart_format") !== "false";
+  const interimResults = url.searchParams.get("interim_results") !== "false";
   const playbook = url.searchParams.get("playbook") || "saas";
 
   // Build the dynamic prompt based on the chosen playbook
   const chosenPlaybook = PLAYBOOKS[playbook] || PLAYBOOKS.general;
-  const salesCoachSystemPrompt = `You are an elite AI Sales Copilot listening to a live sales call, configured for the playbook: "${chosenPlaybook.name}".
-${chosenPlaybook.guidelines}
-
-YOUR STRICT OUTPUT RULES:
-1. Output a maximum of 2 to 3 bullet points. Each bullet point must represent one clear tactical cue or answer helper.
-2. For each bullet point, provide a short tactical direction cue AND a single suggested response phrase in parentheses using the format: (Say: "your suggested response phrase"). Do NOT include "Soft" or "Bold" variations.
-3. Keep the direction cue and the suggested phrasing extremely concise. Do not include any other explanations or markdown headers.
-4. If the customer is making small talk, confirming details (like the school name "Newton School of Technology" or basic greetings), or if no active sales objection handling is needed, do NOT output any bullet points. Instead, output ONLY the exact text: "Great job, keep going!". Do not include any formatting.
-
-EXAMPLE GOOD OUTPUT:
-• Emphasize UGC degree recognition (Say: "Our B.Tech in CS & AI is fully UGC-accredited through our partnership with Rishihood University.")
-• Explain 36-month EMI options (Say: "We have flexible financing plans starting at just 6,500 rupees per month across 36 months.")
-`;
 
   // Create Deepgram client
   const deepgram = new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY });
@@ -262,11 +217,32 @@ EXAMPLE GOOD OUTPUT:
 
   // Initialize Transcript Aggregator
   const aggregator = new TranscriptAggregator({ watchdogTimeout: 2000 });
-  
+
   aggregator.on('utterance', async (utt) => {
+    // Determine speaker role and corresponding audio array
+    const isRep = String(utt.speaker) === "0" || (repSpeakerId !== null && String(utt.speaker) === String(repSpeakerId));
+    const audioSamples = isRep ? repAudioSamples : customerAudioSamples;
+
+    if (audioSamples && audioSamples.length > 0) {
+      const slice = getAudioSlice(audioSamples, utt.start, utt.end);
+      if (slice.length > 8000) { // at least 0.5s of audio
+        try {
+          const result = await audioClassifier(slice, { sampling_rate: 16000 });
+          if (result && result.length > 0) {
+            const topEmotion = result[0];
+            utt.emotion = mapEmotionLabel(topEmotion.label);
+            utt.emotionScore = topEmotion.score;
+            console.log(`[SER] Speaker ${utt.speaker} (${isRep ? 'Rep' : 'Customer'}): ${utt.emotion} (${(topEmotion.score * 100).toFixed(0)}%)`);
+          }
+        } catch (serErr) {
+          console.error(`[SER] Error during classification:`, serErr.message);
+        }
+      }
+    }
+
     // Append to conversation history (just store speaker ID, we will map roles dynamically)
     conversationHistory.push({ speaker: utt.speaker, text: utt.text });
-    
+
     // Keep sliding window of last 10 utterances
     if (conversationHistory.length > 10) {
       conversationHistory.shift();
@@ -285,6 +261,61 @@ EXAMPLE GOOD OUTPUT:
     }
 
     console.log(`[Role Mapping] Speaker ${utt.speaker} classified as ${currentRole} (Rep ID: ${repSpeakerId ?? 0})`);
+
+    let customGuidelines = [];
+
+    // 0. UNIFIED MULTI-KEYWORD SCANNER (Case-Insensitive Bypasses & Guidelines)
+    const playbookBypasses = keywordBypasses[playbook] || [];
+    const lowerText = utt.text.toLowerCase();
+
+    const matchedBypasses = [];
+    const matchedBypassKeywords = new Set();
+
+    for (const b of playbookBypasses) {
+      const kws = b.keywords || [b.keyword];
+      const matchingKeywords = kws.filter(kw => lowerText.includes(kw.toLowerCase()));
+      if (matchingKeywords.length > 0) {
+        matchedBypasses.push(b);
+        for (const kw of matchingKeywords) {
+          matchedBypassKeywords.add(kw.toLowerCase());
+        }
+      }
+    }
+
+    // Active core safeguards (excluding dynamically overridden keywords)
+    const activeCoreKeywords = CORE_SALES_KEYWORDS.filter(kw => !matchedBypassKeywords.has(kw.toLowerCase()));
+    const matchedCore = activeCoreKeywords.filter(kw => lowerText.includes(kw.toLowerCase()));
+
+    const exactOutputBypasses = matchedBypasses.filter(b => b.behavior === "exact_output");
+    const guidelineBypasses = matchedBypasses.filter(b => b.behavior === "guideline");
+    const aiBypassesCount = matchedBypasses.filter(b => b.behavior === "ai").length + matchedCore.length;
+
+    // Collect custom guidelines for LLM 2 prompt injection
+    customGuidelines = guidelineBypasses.map(b => b.guidelineText);
+
+    if (exactOutputBypasses.length > 0) {
+      console.log(`[KeywordBypass] Matched ${exactOutputBypasses.length} exact output bypasses.`);
+      
+      for (const bypass of exactOutputBypasses) {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: "ai_suggestion",
+            data: {
+              text: `• ${bypass.directionText || "Direct Cue"} (Say: "${bypass.sayText}")`,
+              category: "KEYWORD_BYPASS",
+              timestamp: Date.now()
+            }
+          }));
+        }
+      }
+
+      // Scenario A: ONLY exact outputs matched. Exit early!
+      if (guidelineBypasses.length === 0 && aiBypassesCount === 0) {
+        console.log("[KeywordBypass] Only exact output matched. Exiting early.");
+        return;
+      }
+      console.log("[KeywordBypass] Mixed matches detected. Sending exact output and continuing with background AI flow.");
+    }
 
     // Run EventDetector for both Customer and Rep utterances
     const groqApiKey = process.env.GROQ_API_KEY;
@@ -320,9 +351,9 @@ EXAMPLE GOOD OUTPUT:
           // If Customer said a full neutral statement, clear the screen
           console.log(`[EventDetector] Customer neutral statement detected. Sending keep-going signal.`);
           if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ 
-              type: "ai_suggestion", 
-              data: { text: "Great job, keep going!", timestamp: Date.now() } 
+            ws.send(JSON.stringify({
+              type: "ai_suggestion",
+              data: { text: "Great job, keep going!", timestamp: Date.now() }
             }));
           }
           return;
@@ -331,38 +362,130 @@ EXAMPLE GOOD OUTPUT:
         // 2. COGNITIVE ROUTER: Intent-focused suggestion generation
         // Format the history dynamically so retrospective role changes apply to the whole context
         const formattedHistory = conversationHistory.map(h => {
-          const isRepSpeaker = repSpeakerId !== null 
-            ? String(h.speaker) === String(repSpeakerId) 
+          const isRepSpeaker = repSpeakerId !== null
+            ? String(h.speaker) === String(repSpeakerId)
             : String(h.speaker) === "0";
           return `[${isRepSpeaker ? 'Rep' : 'Customer'}]: ${h.text}`;
         }).join("\n");
-        
+
         const activeIntentCategories = detectResult.intents.map(i => {
           const friendlyName = CATEGORY_MAP[i.cat] || i.cat;
           return `${friendlyName}${i.entity ? ` (${i.entity})` : ''}`;
         }).join(", ");
 
-        // Step A: Retrieve only relevant playbook guidelines
-        const mappedFacts = getRelevantPlaybookFacts(playbook, detectResult.intents);
+        // Step A: Check for category bypass overrides or custom guideline injections
+        let bypassOutput = null;
+        let customGuidelinesText = "";
 
-        // Step B: Query Tavily Web Search if an unknown competitor or unknown entity is mentioned
-        let searchSnippet = "";
         for (const intent of detectResult.intents) {
-          if (intent.cat === "COMPETITOR" && intent.entity) {
-            const compName = intent.entity.toLowerCase();
-            const isStaticComp = compName.includes("salesforce") || compName.includes("hubspot") || compName.includes("zoho") || compName.includes("masai") || compName.includes("scaler");
-            if (!isStaticComp) {
-              const query = `${intent.entity} competitor pricing reviews curriculum vs ${playbook === 'newtonschool' ? 'Newton School' : 'our product'}`;
-              const searchResults = await fetchTavilySearch(query);
-              if (searchResults) {
-                searchSnippet += `\n\n[Real-time Web Search Results for ${intent.entity}]:\n${searchResults}`;
-              }
+          const behavior = getCategoryBehavior(intent.cat, playbook);
+          if (behavior === "bypass") {
+            bypassOutput = getCategoryExactOutput(intent.cat, playbook);
+            if (bypassOutput) break;
+          } else if (behavior === "guideline") {
+            const guide = getCategoryGuidelineText(intent.cat, playbook);
+            if (guide) {
+              customGuidelinesText += `\n• ${guide}`;
             }
           }
         }
 
-        const combinedFacts = `${mappedFacts}${searchSnippet}`;
+        if (customGuidelines && customGuidelines.length > 0) {
+          customGuidelinesText += `\n` + customGuidelines.map(g => `• ${g}`).join("\n");
+        }
+
+        if (bypassOutput) {
+          console.log(`[CategoryBypass] Triggering immediate override bypass for active categories: "${bypassOutput}"`);
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: "ai_suggestion",
+              data: {
+                text: bypassOutput,
+                category: detectResult.intents[0].cat,
+                timestamp: Date.now()
+              }
+            }));
+          }
+          return;
+        }
+
+        let combinedFacts = "";
         
+        // Resolve search query (use the LLM 1 generated query or fall back to raw utterance)
+        const searchQuery = detectResult.suggested_search_query || utt.text;
+        console.log(`[RAG] Querying vector store using: "${searchQuery}"`);
+        const ragResults = await queryRAG(searchQuery, playbook, 3);
+        let mappedFacts = "";
+        if (ragResults && ragResults.length > 0) {
+          console.log(`[RAG] Found ${ragResults.length} matching document chunks.`);
+          mappedFacts = ragResults.map(r => `• ${r.text}`).join("\n");
+        } else {
+          console.log(`[RAG] No matching document chunks found in database.`);
+        }
+
+        if (customGuidelinesText) {
+          mappedFacts += customGuidelinesText;
+        }
+
+        // Step B: Query Tavily Web Search if RAG matches + custom guidelines are weak
+        let searchSnippet = "";
+        const hasConfidentRag = (ragResults && ragResults.length > 0 && ragResults.some(r => r.score >= 0.60)) || !!customGuidelinesText;
+        const allowsWebSearch = detectResult.intents.some(intent => categoriesConfig[intent.cat]?.type === "public");
+        let needsTavily = allowsWebSearch && !hasConfidentRag;
+        let unknownEntity = null;
+
+          for (const intent of detectResult.intents) {
+            if (intent.entity) {
+              const entityName = intent.entity.toLowerCase();
+              const isKnownEntity = entityName.includes("salesforce") ||
+                entityName.includes("hubspot") ||
+                entityName.includes("zoho") ||
+                entityName.includes("masai") ||
+                entityName.includes("scaler") ||
+                entityName.includes("simplilearn") ||
+                entityName.includes("intellipaat") ||
+                entityName.includes("rishihood") ||
+                entityName.includes("newton school");
+              if (!isKnownEntity) {
+                needsTavily = true;
+                unknownEntity = intent.entity;
+                break;
+              }
+            }
+          }
+
+          if (needsTavily) {
+            const query = searchQuery;
+            console.log(`[RAG] Triggering Tavily Search Fallback with query: "${query}"`);
+            const rawSearchResults = await fetchTavilySearch(query);
+
+            if (rawSearchResults && rawSearchResults.length > 0) {
+              let alignedSnippets = [];
+              for (const result of rawSearchResults) {
+                const relevanceScore = await calculateRelevance(result.content, query);
+                console.log(`[RAG] Tavily snippet similarity check: score = ${relevanceScore.toFixed(2)} for "${result.content.substring(0, 60)}..."`);
+                if (relevanceScore >= 0.35) {
+                  alignedSnippets.push(result);
+                } else {
+                  console.log(`[RAG] Discarding Tavily snippet because score ${relevanceScore.toFixed(2)} is below threshold 0.35`);
+                }
+              }
+
+              if (alignedSnippets.length > 0) {
+                const snippetsText = alignedSnippets.map(r => `Source: ${r.title} (${r.url})\nContent: ${r.content}`).join("\n\n");
+                searchSnippet += `\n\n[Real-time Web Search Results]:\n${snippetsText}`;
+              } else {
+                console.log(`[RAG] All fetched snippets discarded due to low relevance.`);
+              }
+            }
+          }
+
+          combinedFacts = `${mappedFacts}${searchSnippet}`;
+          if (!combinedFacts.trim()) {
+            combinedFacts = "No specific guidelines or policies found. Provide helpful, polite sales assistance based on general customer objection handling.";
+          }
+        }
+
         // Tailor fullPrompt instructions depending on speaker role
         const roleInstruction = currentRole === "Rep"
           ? `The Rep has proactively brought up the topic: ${activeIntentCategories}. Based on the playbook guidelines, generate the relevant details/cues for the Rep to display on their screen.`
@@ -374,10 +497,15 @@ FACTUAL SALES MANUAL CUES:
 ${combinedFacts}
 
 YOUR STRICT OUTPUT RULES:
-1. Output a maximum of 2 to 3 bullet points. Each bullet point must represent one clear tactical cue or answer helper.
-2. For each bullet point, provide a short tactical direction cue AND a single suggested response phrase in parentheses using the format: (Say: "your suggested response phrase"). Do NOT include "Soft" or "Bold" variations.
-3. Keep the direction cue and the suggested phrasing extremely concise. Do not include any other explanations or markdown headers.
-4. If real-time web search results for a competitor are provided under FACTUAL SALES MANUAL CUES, you MUST dynamically integrate those specific facts (e.g. competitor pricing, course duration, reviews vs our pricing/features) into at least one of your response cues to compare them directly.
+1. Your advice or output must be formatted in the form of bullet points.
+2. Keep the advice/cue and its suggested phrasing extremely concise. Do not include any markdown headers.
+
+3. CATEGORY-SPECIFIC RETRIEVAL & GROUNDING RULES:
+   - For INTERNAL policy categories (FEES, PLACEMENT, DEGREE, BUY_SIGNAL): 
+     You must rely strictly on the provided RAG guidelines under FACTUAL SALES MANUAL CUES. If no relevant local guidelines are provided, do NOT fabricate pricing, eligibility, or policies; instead, output the Defer to follow-up card.
+   - For PUBLIC knowledge categories (COMPETITOR, INQUIRY, SWITCHING):
+     * If BOTH local RAG guidelines and real-time web search results are provided: You must compare them directly. Contrast the competitor's retrieved details (e.g. competitor fees, reviews, features) or technologies with our specific playbook USPs (e.g. Newton School's fees, mentor quality, placement history) to highlight our advantages.
+     * If ONLY web search results are provided (and local RAG cues are empty): Highlight the search facts (e.g. competitor stats, tech specs, salary averages), but do NOT speculate or make up any details about our pricing/features. Present only the searched data and output the Defer to follow-up card for our specific details, or guide the Rep to offer a free Career Counseling Session.
 `;
 
         const fullPrompt = `${tailoredPlaybookPrompt}
@@ -420,11 +548,15 @@ ${roleInstruction}`;
         }
 
         console.log(`[AI Response]:\n${advice}`);
-        
+
         if (advice && ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ 
-            type: "ai_suggestion", 
-            data: { text: advice, timestamp: Date.now() } 
+          ws.send(JSON.stringify({
+            type: "ai_suggestion",
+            data: {
+              text: advice,
+              timestamp: Date.now(),
+              category: activeIntentCategories
+            }
           }));
         }
       } catch (err) {
@@ -439,6 +571,8 @@ ${roleInstruction}`;
       language,
       smart_format: smartFormat,
       interim_results: interimResults,
+      encoding: 'linear16',
+      sample_rate: 16000,
       endpointing: 500, // Enable Deepgram VAD (500ms silence threshold)
       diarize: false, // AI diarization completely disabled
       multichannel: true, // Always use multichannel (Channel 0 = Microphone/Rep, Channel 1 = Speaker/Customer)
@@ -493,7 +627,21 @@ ${roleInstruction}`;
   // Handle incoming data from the client browser
   ws.on("message", (message, isBinary) => {
     if (isBinary) {
-      if (dgConnection && dgConnection.readyState === 1) { 
+      // Append interleaved Int16 PCM samples to respective channel Float32 buffers
+      try {
+        const numSamples = message.length / 4; // stereo 16-bit is 4 bytes per frame
+        for (let i = 0; i < numSamples; i++) {
+          const leftVal = message.readInt16LE(i * 4);
+          const rightVal = message.readInt16LE(i * 4 + 2);
+
+          repAudioSamples.push(leftVal / 32768.0);
+          customerAudioSamples.push(rightVal / 32768.0);
+        }
+      } catch (err) {
+        console.error("Error unpacking binary PCM packet:", err.message);
+      }
+
+      if (dgConnection && dgConnection.readyState === 1) {
         try {
           dgConnection.sendMedia(message);
         } catch (e) {
@@ -525,7 +673,7 @@ ${roleInstruction}`;
     console.log("Client browser disconnected.");
     aggregator.flush();
     if (dgConnection) {
-      try { dgConnection.close(); } catch (e) {}
+      try { dgConnection.close(); } catch (e) { }
     }
   });
 });

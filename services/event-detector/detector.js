@@ -15,10 +15,19 @@ const __dirname = path.dirname(__filename);
 // Dynamic playbooks and categories loaded from config files
 const PLAYBOOKS = JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'playbooks.json'), 'utf8'));
 const categoriesConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'categories.json'), 'utf8'));
+const KEYWORD_BYPASSES = JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'keyword_bypasses.json'), 'utf8'));
 
 export const CATEGORY_MAP = Object.fromEntries(
   Object.entries(categoriesConfig).map(([key, val]) => [key, val.label])
 );
+
+export const CORE_SALES_KEYWORDS = [
+  "fee", "fees", "pricing", "cost", "payment", "isa", "income share", "installment", "installments",
+  "emi", "loan", "scholarship", "scholarships", "refund", "discount", "discounts",
+  "placement", "placements", "package", "salary", "lpa", "ctc", "career", "job", "jobs", "hire", "hiring",
+  "degree", "university", "affiliation", "ugc", "accredited", "rishihood", "verify", "verified",
+  "competitor", "competitors", "salesforce", "hubspot", "zoho", "masai", "scaler", "coding ninjas", "codecademy"
+];
 
 // Common fillers & agreement words for gatekeeper exit
 const FILLER_WORDS = new Set([
@@ -58,9 +67,34 @@ export class EventDetector extends EventEmitter {
   hasSalesKeyword(text) {
     if (!text) return false;
     const lowerText = text.toLowerCase();
-    const chosenPlaybook = PLAYBOOKS[this.playbook] || PLAYBOOKS.general;
-    const keywords = chosenPlaybook.salesKeywords || [];
-    return keywords.some(kw => lowerText.includes(kw));
+    
+    // Load custom playbooks bypasses dynamically
+    const playbookBypasses = KEYWORD_BYPASSES[this.playbook] || [];
+    const matchedBypassKeywords = new Set();
+
+    for (const b of playbookBypasses) {
+      const kws = b.keywords || [b.keyword];
+      const matchingKeywords = kws.filter(kw => lowerText.includes(kw.toLowerCase()));
+      if (matchingKeywords.length > 0) {
+        for (const kw of matchingKeywords) {
+          matchedBypassKeywords.add(kw.toLowerCase());
+        }
+      }
+    }
+
+    // Filter dynamic active core keywords that haven't been overridden by custom bypasses
+    const activeCoreKeywords = CORE_SALES_KEYWORDS.filter(kw => !matchedBypassKeywords.has(kw.toLowerCase()));
+
+    // Check custom bypass match
+    const hasCustomMatch = playbookBypasses.some(b => {
+      const kws = b.keywords || [b.keyword];
+      return kws.some(kw => lowerText.includes(kw.toLowerCase()));
+    });
+
+    // Check active core match
+    const hasCoreMatch = activeCoreKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
+
+    return hasCustomMatch || hasCoreMatch;
   }
 
   async isZeroShotSmallTalk(text) {
@@ -78,7 +112,7 @@ export class EventDetector extends EventEmitter {
       const score = result.scores[smallTalkIndex];
       
       console.log(`[EventDetector] Zero-Shot check for "${text}": Small Talk Score = ${(score * 100).toFixed(1)}%`);
-      return score >= 0.70;
+      return score >= 0.80;
     } catch (e) {
       console.error("[EventDetector] Local Zero-Shot classification error:", e.message);
       return false;

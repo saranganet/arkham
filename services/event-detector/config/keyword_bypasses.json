@@ -1,0 +1,18 @@
+{
+  "newtonschool": [
+    {
+      "keywords": ["aptitude test", "scholarship test", "45-min test"],
+      "behavior": "exact_output",
+      "directionText": "Offer Scholarship Aptitude Test",
+      "sayText": "We can schedule your free 45-minute aptitude test right now. It covers logical reasoning and English, requires no prep, and locks in your scholarship. Do you prefer morning or evening?"
+    }
+  ],
+  "saas": [
+    {
+      "keywords": ["demo session", "free trial", "try it out"],
+      "behavior": "exact_output",
+      "directionText": "Offer Free B2B SaaS Trial",
+      "sayText": "We can set you up with a free 14-day trial Sandbox account loaded with mock GA4 and Shopify data so you can try it out yourself. Should I send the signup link?"
+    }
+  ]
+}
