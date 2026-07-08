@@ -78,8 +78,10 @@ graph TD
         M7_Filter -->|Similarity >= 0.35| M6
         M7_Filter -->|Similarity < 0.35| M7_Discard[Discard Web Snippets]
         M7_Discard --> M6
+        
+        M6 --> M8[Inject Custom Bypasses & Category Guidelines]
         M3 --> N1[Groq Llama 3.1 8B Suggestion Generator - LLM 2]
-        M6 --> N1
+        M8 --> N1
         N1 -->|Generate Grounded Suggestions / Fallbacks| O1[WebSocket Push to UI]
     end
 
