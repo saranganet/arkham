@@ -12,11 +12,11 @@ flowchart TD
     
     B -->|Yes| B_QA{Answering a Question?}
     B_QA -->|No| Exit1[Exit: Keep Screen Cards]
-    B_QA -->|Yes| C{Is Simple Greeting?}
+    B_QA -->|Yes| F[Route to LLM 1 Classifier]
     
-    B -->|No| C
+    B -->|No| C{Is Simple Greeting?}
     
-    C -->|Yes| Exit2[Exit: Keep Screen Cards]
+    C -->|Yes| Exit1
     C -->|No| D{Has Playbook Keywords?}
     
     D -->|"Yes (Objection Likely)"| F[Route to LLM 1 Classifier]

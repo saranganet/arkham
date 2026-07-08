@@ -38,14 +38,14 @@ graph TD
         
         H -- Yes --> H_QA{isRespondingToQuestion?}
         H_QA -- No --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
-        H_QA -- Yes --> I{Is Simple Greeting?}
+        H_QA -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
         
-        H -- No --> I
+        H -- No --> I{Is Simple Greeting?}
         
         I -- Yes --> Exit1
         I -- No --> G{Has Sales/Comparison Keywords in Context?}
         
-        G -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
+        G -- Yes --> LLM1
         G -- No --> ZeroShot[Local Zero-Shot Classifier]
         
         ZeroShot -->|Score >= 70% Small Talk| Exit2[Zero-Shot Exit - Keep Active UI Cards]
