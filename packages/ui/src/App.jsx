@@ -24,7 +24,6 @@ export default function App() {
   const [language, setLanguage] = useState(() => loadState('cluely_language', 'en-US'));
   const [smartFormat, setSmartFormat] = useState(() => loadState('cluely_smartFormat', true));
   const [interimResults, setInterimResults] = useState(() => loadState('cluely_interimResults', true));
-  const [diarizationMode, setDiarizationMode] = useState(() => loadState('cluely_diarizationMode', 'multichannel'));
 
   // Connection & Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -66,6 +65,8 @@ export default function App() {
   // Refs for Web Audio API & WebSocket
   const socketRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const processorNodeRef = useRef(null);
+  const isSendingRef = useRef(false);
   const flashTimeoutRef = useRef(null);
   const audioStreamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -89,12 +90,15 @@ export default function App() {
     }
   }, [utterances, interimText]);
 
-  // Auto-scroll suggestions
+  // Auto-scroll to keep the first incomplete cue card in focus
   useEffect(() => {
-    if (suggestionsEndRef.current) {
+    const activeCard = document.getElementById('active-cue-card');
+    if (activeCard) {
+      activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (suggestionsEndRef.current) {
       suggestionsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [suggestions]);
+  }, [focusQueue, completedCardIds, suggestions]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -128,7 +132,6 @@ export default function App() {
   useEffect(() => { localStorage.setItem('cluely_language', JSON.stringify(language)); }, [language]);
   useEffect(() => { localStorage.setItem('cluely_smartFormat', JSON.stringify(smartFormat)); }, [smartFormat]);
   useEffect(() => { localStorage.setItem('cluely_interimResults', JSON.stringify(interimResults)); }, [interimResults]);
-  useEffect(() => { localStorage.setItem('cluely_diarizationMode', JSON.stringify(diarizationMode)); }, [diarizationMode]);
   useEffect(() => { localStorage.setItem('cluely_repSpeakerId', JSON.stringify(repSpeakerId)); }, [repSpeakerId]);
   useEffect(() => { localStorage.setItem('cluely_playbook', JSON.stringify(playbook)); }, [playbook]);
   useEffect(() => { localStorage.setItem('cluely_utterances', JSON.stringify(utterances)); }, [utterances]);
@@ -312,69 +315,93 @@ export default function App() {
       return;
     }
 
-    let activeStream = micStream;
+    // 2. Get Display/Tab Stream (for Customer's voice)
     let displayStream = null;
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+      
+      // Ensure the display stream actually has audio tracks
+      if (displayStream.getAudioTracks().length === 0) {
+        displayStream.getTracks().forEach(t => t.stop());
+        micStream.getTracks().forEach(t => t.stop());
+        setStatus(prev => ({ ...prev, mic: 'ready' }));
+        setErrorMessage('You must select a tab or window and check the "Share tab audio" or "Share system audio" box.');
+        return;
+      }
+    } catch (err) {
+      console.error('Tab capture denied/canceled:', err);
+      micStream.getTracks().forEach(t => t.stop());
+      setStatus(prev => ({ ...prev, mic: 'ready' }));
+      setErrorMessage('Tab audio capture is required for stereo separation. Allow screen share to proceed.');
+      return;
+    }
 
-    if (diarizationMode === 'multichannel') {
-      // 2. Get Display/Tab Stream (for Customer's voice)
-      try {
-        displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true
-        });
-        
-        // Ensure the display stream actually has audio tracks
-        if (displayStream.getAudioTracks().length === 0) {
-          displayStream.getTracks().forEach(t => t.stop());
-          micStream.getTracks().forEach(t => t.stop());
-          setStatus(prev => ({ ...prev, mic: 'ready' }));
-          setErrorMessage('You must select a tab or window and check the "Share tab audio" or "Share system audio" box.');
-          return;
+    // 3. Web Audio Mixer & Processor setup (Interleaved stereo: Left = Rep Mic, Right = Customer loopback)
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioCtxClass({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      const displaySource = audioContext.createMediaStreamSource(displayStream);
+      const merger = audioContext.createChannelMerger(2);
+      
+      // Connect mic (Rep) to Channel 0 (Left)
+      micSource.connect(merger, 0, 0);
+      // Connect tab (Customer) to Channel 1 (Right)
+      displaySource.connect(merger, 0, 1);
+
+      // Create ScriptProcessorNode for raw Float32 samples extraction (2048 samples = 128ms latency)
+      const processor = audioContext.createScriptProcessor(2048, 2, 2);
+      processorNodeRef.current = processor;
+
+      merger.connect(processor);
+      processor.connect(audioContext.destination);
+
+      processor.onaudioprocess = (e) => {
+        if (!isSendingRef.current || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+
+        const left = e.inputBuffer.getChannelData(0);
+        const right = e.inputBuffer.getChannelData(1);
+        const length = left.length;
+
+        // Interleaved 16-bit Int16 PCM Conversion
+        const buffer = new ArrayBuffer(length * 2 * 2);
+        const view = new DataView(buffer);
+
+        for (let i = 0; i < length; i++) {
+          let sLeft = Math.max(-1, Math.min(1, left[i]));
+          let valLeft = sLeft < 0 ? sLeft * 0x8000 : sLeft * 0x7FFF;
+          view.setInt16(i * 4, valLeft, true);
+
+          let sRight = Math.max(-1, Math.min(1, right[i]));
+          let valRight = sRight < 0 ? sRight * 0x8000 : sRight * 0x7FFF;
+          view.setInt16(i * 4 + 2, valRight, true);
         }
-      } catch (err) {
-        console.error('Tab capture denied/canceled:', err);
-        micStream.getTracks().forEach(t => t.stop());
-        setStatus(prev => ({ ...prev, mic: 'ready' }));
-        setErrorMessage('Tab audio capture is required for stereo separation. Allow screen share or switch to AI Diarize.');
-        return;
-      }
 
-      // 3. Web Audio Mixer (Stereo merge)
-      try {
-        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-        const audioContext = new AudioCtxClass();
-        audioContextRef.current = audioContext;
+        socketRef.current.send(buffer);
+        setPacketCount(prev => prev + 1);
+      };
 
-        const micSource = audioContext.createMediaStreamSource(micStream);
-        const displaySource = audioContext.createMediaStreamSource(displayStream);
-
-        const merger = audioContext.createChannelMerger(2);
-        
-        // Connect mic (Rep) to Channel 0 (Left)
-        micSource.connect(merger, 0, 0);
-        // Connect tab (Customer) to Channel 1 (Right)
-        displaySource.connect(merger, 0, 1);
-
-        const dest = audioContext.createMediaStreamDestination();
-        merger.connect(dest);
-
-        // Mixed stereo stream goes to Deepgram
-        activeStream = dest.stream;
-
-        // Auto-identify Sales Rep as Speaker 0 (Channel 0)
-        setRepSpeakerId(0);
-      } catch (err) {
-        console.error('Failed to configure Audio mixer:', err);
-        micStream.getTracks().forEach(t => t.stop());
-        if (displayStream) displayStream.getTracks().forEach(t => t.stop());
-        setStatus(prev => ({ ...prev, mic: 'ready' }));
-        setErrorMessage('Audio mixer configuration failed: ' + err.message);
-        return;
-      }
+      // Start Visualizer
+      initVisualizer(audioContext, micSource);
+      
+      // Auto-identify Sales Rep as Speaker 0
+      setRepSpeakerId(0);
+    } catch (err) {
+      console.error('Failed to configure Audio mixer:', err);
+      micStream.getTracks().forEach(t => t.stop());
+      if (displayStream) displayStream.getTracks().forEach(t => t.stop());
+      setStatus(prev => ({ ...prev, mic: 'ready' }));
+      setErrorMessage('Audio mixer configuration failed: ' + err.message);
+      return;
     }
 
     // Keep stream references
-    audioStreamRef.current = activeStream;
+    audioStreamRef.current = micStream;
     audioStreamRef.current._micStream = micStream;
     audioStreamRef.current._displayStream = displayStream;
 
@@ -388,9 +415,6 @@ export default function App() {
     }
 
     setIsRecording(true);
-    
-    // 4. Initialize visualizer (using local micStream so the rep sees their own voice activity)
-    initVisualizer(micStream);
 
     // 5. Connect to proxy WebSocket
     connectWebSocket();
@@ -398,6 +422,7 @@ export default function App() {
 
   const stopRecordingSession = () => {
     setIsRecording(false);
+    isSendingRef.current = false;
 
     // Stop Media Recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -408,6 +433,16 @@ export default function App() {
       }
     }
     mediaRecorderRef.current = null;
+
+    // Disconnect and clean up Processor Node
+    if (processorNodeRef.current) {
+      try {
+        processorNodeRef.current.disconnect();
+      } catch (e) {
+        console.error(e);
+      }
+      processorNodeRef.current = null;
+    }
 
     // Close Audio Context
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -484,9 +519,8 @@ export default function App() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.port === '5173' ? 'localhost:3000' : window.location.host;
     
-    // Determine connection query params
-    const isMultichannel = diarizationMode === 'multichannel';
-    const wsUrl = `${protocol}//${host}?model=${model}&language=${language}&smart_format=${smartFormat}&interim_results=${interimResults}&diarize=${!isMultichannel}&multichannel=${isMultichannel}&channels=${isMultichannel ? 2 : 1}&playbook=${playbook}`;
+    // Determine connection query params (Always Hardware Stereo Multichannel)
+    const wsUrl = `${protocol}//${host}?model=${model}&language=${language}&smart_format=${smartFormat}&interim_results=${interimResults}&diarize=false&multichannel=true&channels=2&playbook=${playbook}`;
     
     const ws = new WebSocket(wsUrl);
     socketRef.current = ws;
@@ -506,7 +540,7 @@ export default function App() {
           case 'status':
             if (payload.status === 'connected') {
               setStatus(prev => ({ ...prev, deepgram: 'live' }));
-              startAudioCapture();
+              isSendingRef.current = true;
             }
             break;
           case 'transcript':
@@ -591,7 +625,8 @@ export default function App() {
                 id: Date.now() + Math.random().toString(36).substring(2),
                 directionText,
                 singlePhrase,
-                originalText: step
+                originalText: step,
+                category: payload.data.category
               };
             });
             
@@ -649,35 +684,7 @@ export default function App() {
     };
   };
 
-  const startAudioCapture = () => {
-    if (!audioStreamRef.current) return;
-
-    let mimeType = 'audio/webm';
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-      mimeType = 'audio/webm;codecs=opus';
-    } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-      mimeType = 'audio/ogg;codecs=opus';
-    }
-
-    try {
-      const mediaRecorder = new MediaRecorder(audioStreamRef.current, { mimeType });
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(event.data);
-          setPacketCount(prev => prev + 1);
-        }
-      };
-
-      // Slice audio data into 250ms chunks for streaming
-      mediaRecorder.start(250);
-    } catch (err) {
-      console.error('Failed to start media recorder:', err);
-      setErrorMessage('Failed to initialize MediaRecorder: ' + err.message);
-      stopRecordingSession();
-    }
-  };
+  // startAudioCapture removed since ScriptProcessorNode streams raw PCM directly on onaudioprocess
 
   const handleDeepgramChunk = (data) => {
     if (!data || !data.channel || !data.channel.alternatives || !data.channel.alternatives[0]) {
@@ -708,19 +715,14 @@ export default function App() {
   // LEVEL METER VISUALIZER
   // -----------------------------------------------------------------
 
-  const initVisualizer = (stream) => {
-    const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-    const audioContext = new AudioCtxClass();
-    audioContextRef.current = audioContext;
-
-    const source = audioContext.createMediaStreamSource(stream);
+  const initVisualizer = (audioContext, sourceNode) => {
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 64; // Low FFT size yields a tight, sleek wave bar count
     analyserRef.current = analyser;
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    source.connect(analyser);
+    sourceNode.connect(analyser);
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -921,17 +923,7 @@ export default function App() {
               </label>
             </div>
 
-            <div className="input-group" style={{ marginTop: '16px' }}>
-              <label>Diarization Mode</label>
-              <select 
-                value={diarizationMode} 
-                onChange={(e) => setDiarizationMode(e.target.value)}
-                disabled={isRecording}
-              >
-                <option value="multichannel">Hardware Stereo (Mic + Tab Audio)</option>
-                <option value="ai">Single-Mic AI Diarize</option>
-              </select>
-            </div>
+            {/* Diarization Mode dropdown removed (Hardcoded to Hardware Stereo Separation) */}
 
             <div className="input-group" style={{ marginTop: '16px' }}>
               <label>Sales Playbook</label>
@@ -940,12 +932,13 @@ export default function App() {
                 onChange={(e) => setPlaybook(e.target.value)}
                 disabled={isRecording}
               >
-                <option value="saas">B2B SaaS & Tech</option>
-                <option value="insurance">B2C Insurance Sales</option>
-                <option value="realestate">Real Estate & Property</option>
-                <option value="newtonschool">Newton School Bangalore</option>
-                <option value="general">General B2C/B2B Sales</option>
-              </select>
+                 <option value="saas">B2B SaaS & Tech</option>
+                 <option value="insurance">B2C Insurance Sales</option>
+                 <option value="realestate">Real Estate & Property</option>
+                 <option value="newtonschool">Newton School Bangalore</option>
+                 <option value="hearthline">Hearthline DTC Brand</option>
+                 <option value="general">General B2C/B2B Sales</option>
+               </select>
             </div>
           </div>
 
@@ -1028,6 +1021,25 @@ export default function App() {
                       >
                         {isRep ? 'Swap to Customer' : 'Swap to Rep'}
                       </button>
+
+                      {utt.emotion && (() => {
+                        const weights = {
+                          "Happy": 1.0,
+                          "Calm": 0.0,
+                          "Sad": -0.4,
+                          "Anxious": -0.5,
+                          "Irritated": -0.8,
+                          "Agitated": -1.0
+                        };
+                        const baseWeight = weights[utt.emotion] || 0.0;
+                        const score = baseWeight * (utt.emotionScore || 0.0);
+                        const displayScore = score >= 0 ? `+${score.toFixed(2)}` : score.toFixed(2);
+                        return (
+                          <span className={`utt-emotion-badge emotion-${utt.emotion.toLowerCase()}`} style={{ marginLeft: '8px' }}>
+                            {utt.emotion} ({displayScore})
+                          </span>
+                        );
+                      })()}
                       
                       <span className="utt-timestamp">{formatTime(utt.start)}</span>
                     </div>
@@ -1104,32 +1116,57 @@ export default function App() {
 
               return (
                 <div className="suggestions-timeline-container">
-                  <div className="suggestions-timeline-line"></div>
-                  {focusQueue.map((card, index) => {
-                    const isCompleted = completedCardIds.has(card.id);
-                    return (
-                      <div 
-                        key={card.id} 
-                        className={`timeline-cue-item ${isCompleted ? 'completed' : ''}`}
-                      >
-                        <div className="timeline-cue-dot"></div>
-                        <div className="timeline-cue-content">
-                          <span className="timeline-cue-number">
-                            {isCompleted ? 'Completed ✓' : `Cue #${index + 1}`}
-                          </span>
-                          <h4 className="timeline-cue-instruction">
-                            {card.directionText}
-                          </h4>
-                          {card.singlePhrase && (
-                            <p className="timeline-cue-phrase">
-                              “{card.singlePhrase}”
-                            </p>
-                          )}
+                  {(() => {
+                    const visibleCards = focusQueue.slice(-3);
+                    return visibleCards.map((card, idx) => {
+                      const total = visibleCards.length;
+                      let positionClass = "";
+                      if (total === 1) {
+                        positionClass = "card-current";
+                      } else if (total === 2) {
+                        if (idx === 1) positionClass = "card-current";
+                        if (idx === 0) positionClass = "card-previous";
+                      } else if (total === 3) {
+                        if (idx === 2) positionClass = "card-current";
+                        if (idx === 1) positionClass = "card-previous";
+                        if (idx === 0) positionClass = "card-exiting";
+                      }
+                      
+                      const isCompleted = completedCardIds.has(card.id);
+                      const isActive = positionClass === "card-current" && !isCompleted;
+                      const globalIndex = focusQueue.indexOf(card);
+
+                      return (
+                        <div 
+                          key={card.id} 
+                          id={isActive ? 'active-cue-card' : undefined}
+                          className={`timeline-cue-item ${positionClass} ${isCompleted ? 'completed' : ''} ${isActive ? 'active-cue' : ''}`}
+                        >
+                          <div className="timeline-cue-content">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '8px' }}>
+                              <span className="timeline-cue-number">
+                                {isCompleted ? 'Completed ✓' : `Cue #${globalIndex + 1}`}
+                              </span>
+                              {card.category && (
+                                <span className="timeline-cue-category-badge" style={{ fontSize: '10px', background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.3)', whiteSpace: 'nowrap' }}>
+                                  {card.category}
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="timeline-cue-instruction">
+                              {card.directionText}
+                            </h4>
+                            {card.singlePhrase && (
+                              <p className="timeline-cue-phrase">
+                                “{card.singlePhrase}”
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={suggestionsEndRef} />
+                      );
+                    });
+                  })()}
+                  <div ref={suggestionsEndRef} style={{ height: '0', overflow: 'hidden' }} />
                 </div>
               );
             })()}

@@ -677,6 +677,63 @@ body {
   transform: translateY(0);
 }
 
+/* Glowing Glassmorphic Emotion Badges */
+.utt-emotion-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  backdrop-filter: var(--glass-blur);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.emotion-calm {
+  background-color: rgba(16, 185, 129, 0.15); /* Emerald tint */
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.emotion-happy {
+  background-color: rgba(234, 179, 8, 0.15); /* Yellow/Gold tint */
+  color: #fde047;
+  border-color: rgba(234, 179, 8, 0.3);
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.15);
+}
+
+.emotion-agitated {
+  background-color: rgba(244, 63, 94, 0.18); /* Rose tint */
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.35);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.2);
+}
+
+.emotion-sad {
+  background-color: rgba(59, 130, 246, 0.15); /* Blue tint */
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+}
+
+.emotion-anxious {
+  background-color: rgba(168, 85, 247, 0.15); /* Purple tint */
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.3);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.15);
+}
+
+.emotion-irritated {
+  background-color: rgba(249, 115, 22, 0.15); /* Orange tint */
+  color: #fdba74;
+  border-color: rgba(249, 115, 22, 0.3);
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.15);
+}
+
 /* Typing indicator for live draft */
 .typing-indicator {
   display: flex;
@@ -1331,56 +1388,81 @@ body {
   to { opacity: 1; }
 }
 
-/* Clean Timeline-style suggestions list */
+/* Clean Stack-style suggestions list */
 .suggestions-timeline-container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   width: 100%;
   position: relative;
-  padding: 10px 0 30px 20px;
+  padding: 10px 0 30px 0;
   margin-top: 10px;
-}
-
-/* Vertical line connecting cues */
-.suggestions-timeline-line {
-  position: absolute;
-  left: 6px;
-  top: 15px;
-  bottom: 15px;
-  width: 2px;
-  background: rgba(255, 255, 255, 0.08);
+  perspective: 1000px;
 }
 
 .timeline-cue-item {
   position: relative;
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   animation: fadeIn 0.4s ease-out;
 }
 
+/* Slot 1: Current Card (Large, glowing, active focus) */
+.timeline-cue-item.card-current {
+  opacity: 1;
+  transform: scale(1);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+  animation: alertPulse 1.5s infinite alternate ease-in-out;
+}
+
+/* Slot 2: Previous Card (Dimmed, blurred, scaled down) */
+.timeline-cue-item.card-previous {
+  opacity: 0.4;
+  transform: scale(0.95);
+  pointer-events: none;
+  filter: blur(0.5px);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+/* Exit Slot: Card Exiting (Slides out downwards and fades) */
+.timeline-cue-item.card-exiting {
+  animation: slideOutDown 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
 .timeline-cue-item.completed {
-  opacity: 0.45;
+  border-color: var(--accent-emerald) !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25) !important;
+  animation: none !important;
 }
 
-.timeline-cue-dot {
-  position: absolute;
-  left: -20px;
-  top: 6px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background-color: var(--accent-purple);
-  box-shadow: 0 0 10px var(--accent-purple-glow);
-  border: 2px solid var(--bg-secondary);
-  z-index: 2;
-  transition: all 0.3s ease;
+@keyframes slideOutDown {
+  0% {
+    transform: translateY(0) scale(0.95);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(40px) scale(0.9);
+    opacity: 0;
+  }
 }
 
-.timeline-cue-item.completed .timeline-cue-dot {
-  background-color: var(--accent-emerald);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+@keyframes alertPulse {
+  0% {
+    border-color: rgba(168, 85, 247, 0.35);
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.15);
+  }
+  100% {
+    border-color: rgba(168, 85, 247, 0.7);
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+  }
 }
 
 .timeline-cue-content {
