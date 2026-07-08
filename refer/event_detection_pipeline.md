@@ -31,25 +31,30 @@ graph TD
         SER_Map -->|Inject emotion & emotionScore| E
     end
 
-    %% Stage 3: Symmetric Gatekeeper Funnel
-    subgraph Stage 3: Local Gatekeeper Funnel
-        E -->|Calculate Context| F[Check QA Context: isRespondingToQuestion?]
-        F --> H{Is Filler Utterance?}
+    %% Stage 3: Unified Multi-Keyword Scan & Gatekeeper Funnel
+    subgraph Stage 3: Unified Multi-Keyword Scan & Gatekeeper
+        E -->|Scan Bypasses & Core Safeguards| K_Scan{Any Matched Keywords?}
         
-        H -- Yes --> H_QA{isRespondingToQuestion?}
-        H_QA -- No --> Exit1[Gatekeeper Exit - Keep Active UI Cards]
-        H_QA -- Yes --> LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
+        K_Scan -->|Yes| K_Exact{Any Exact Matches?}
         
-        H -- No --> I{Is Simple Greeting?}
+        K_Exact -->|Yes| K_Direct[Push Exact Output Cards directly to UI]
+        K_Direct --> K_Mixed{Any Guideline or AI Matches?}
+        K_Mixed -->|No| Exit1[Exit Pipeline - 0ms AI Latency]
+        K_Mixed -->|Yes| LLM1[Groq Llama 3.1 8B Classifier - LLM 1]
         
-        I -- Yes --> Exit1
-        I -- No --> G{Has Sales/Comparison Keywords in Context?}
+        K_Exact -->|No| LLM1
         
-        G -- Yes --> LLM1
-        G -- No --> ZeroShot[Local Zero-Shot Classifier]
+        K_Scan -->|No| H{Is Filler Utterance?}
+        H -->|Yes| H_QA{isRespondingToQuestion?}
+        H_QA -->|No| ExitGate[Gatekeeper Exit - Keep Screen Cards]
+        H_QA -->|Yes| LLM1
         
-        ZeroShot -->|Score >= 70% Small Talk| Exit2[Zero-Shot Exit - Keep Active UI Cards]
-        ZeroShot -->|Score < 70% Small Talk| LLM1
+        H -->|No| I{Is Simple Greeting?}
+        I -->|Yes| ExitGate
+        I -->|No| ZeroShot[Run Local Zero-Shot NLI]
+        
+        ZeroShot -->|"Score >= 80% Small Talk"| ExitZero[Exit - Keep Screen Cards]
+        ZeroShot -->|"Score < 80% Small Talk"| LLM1
     end
 
     %% Stage 4 & 5: Classifier & early-exit
@@ -63,9 +68,9 @@ graph TD
 
     %% Stage 6 & 7: Search & Suggestions
     subgraph Stage 6 & 7: Contextual Search & Suggestions
-        M1 --> M2{Manager Direct Rule?}
-        M2 -- Yes --> M3[Use Direct Rule Cue]
-        M2 -- No --> M4[Query Qdrant RAG / Local Mock using Search Query]
+        M1 --> M2{Category Override behavior?}
+        M2 -- bypass --> M3[Use Exact Output override]
+        M2 -- guideline/ai --> M4[Query Qdrant RAG / Local Mock using Search Query]
         M4 --> M5{"Has Confident RAG Match (>= 0.60)?"}
         M5 -- Yes --> M6[Assemble Prompt Context]
         M5 -- No --> M7[Tavily Search using same Search Query]
@@ -84,10 +89,12 @@ graph TD
         P1 --> P2[Web Audio API Chime + Panel Glow Alert + Emotion Badge]
         P1 --> P3[Jaccard Similarity Deduplication Check]
         P3 -->|Overlap > 55%| P4[Discard Suggestion Card]
-        P3 -->|Unique| P5[Render Slide-in Card]
-        P5 --> Q1[Transformers.js embedding on Rep's spoke words]
-        Q1 --> Q2{Cosine Similarity > 0.65?}
-        Q2 -- Yes --> Q3[Mark Card Completed & Animate Out]
+        P3 -->|Unique| P5[Render Stacked Layout: slice -3]
+        P5 --> P6[Slot 1: Current Card - 100% opacity, glow pulse]
+        P5 --> P7[Slot 2: Previous Card - 40% opacity, scale 0.95]
+        P5 --> Q1[Transformers.js embedding on Rep's spoken words]
+        Q1 --> Q2{"Cosine Similarity > 0.65?"}
+        Q2 -- Yes --> Q3[Mark Card Completed, flash emerald, slide out exit]
         Q2 -- No --> Q4[Persist Card on screen]
     end
 ```
