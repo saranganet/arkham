@@ -35,12 +35,12 @@ flowchart TD
     LoopHistory --> CategoryCheck{Does intent category match card category?}
     
     CategoryCheck -->|No| NextCard[Check next card in history]
-    CategoryCheck -->|Yes| SemanticCheck{Compute similarity between new suggested_search_query and card RAG context}
+    CategoryCheck -->|Yes| SemanticCheck{Compute similarity between new suggested_search_query and each component: directionText & individual bullet texts}
     
-    SemanticCheck -->|Score >= 0.70| ConfirmAnswer[Answers Question: Bypasses RAG & LLM 2]
+    SemanticCheck -->|MaxScore >= 0.70| ConfirmAnswer[Answers Question: Bypasses RAG & LLM 2]
     ConfirmAnswer --> SendFocus[Send focus_card WebSocket command]
     
-    SemanticCheck -->|Score < 0.70| NextCard
+    SemanticCheck -->|MaxScore < 0.70| NextCard
     
     NextCard --> AllChecked{Checked all 5 cards?}
     AllChecked -->|No| LoopHistory
@@ -48,21 +48,26 @@ flowchart TD
     RunGen --> NewCard[Generate new dynamic suggestions card & focus]
 ```
 
-### B. Matching Mechanism Details
-1.  **Intents & Query Extraction:** LLM 1 outputs the intent category (e.g. `DEGREE`) and a pronoun-resolved `suggested_search_query` (e.g. `"Newton School UGC recognition"` instead of *"is it approved?"*).
+### B. Matching Mechanism Details (Max-Pooling Similarity)
+1.  **Intents & Query Extraction:** LLM 1 outputs the intent category (e.g. `DEGREE`) and a pronoun-resolved `suggested_search_query` (e.g. `"Newton School UGC recognition"`).
 2.  **Category Filter:** We filter the last 5 cards in the history for matching categories.
-3.  **Semantic Similarity Threshold:**
-    *   We compute the cosine similarity between the new `suggested_search_query` and the RAG facts/instructions stored inside the candidate card.
-    *   *Case A (Matches & Answers):*
+3.  **Max-Pooling Similarity Check (Part-Level matching):**
+    *   Instead of embedding the entire concatenated card, we compute individual similarity scores between the query and:
+        *   `directionText` of the card.
+        *   `bullet.text` of every bullet point in the card.
+    *   We resolve the final score as `MaxScore = Math.max(...individualScores)`.
+    *   *Case A (Part of Card Answers):*
         *   New Query: `"Newton School UGC recognition"`
-        *   Existing Card Text: `"Our CS & AI degree is fully UGC-recognized through Rishihood University..."`
-        *   Similarity Score: `0.85` ($\ge 0.70$).
-        *   **Action:** Card answers the question. Trigger `focus_card` to scroll back.
-    *   *Case B (Matches but does NOT Answer):*
+        *   Bullet 1: `"Our CS & AI degree is fully UGC-recognized through Rishihood..."` $\to$ Score: `0.85`
+        *   Bullet 2: `"Batches start in January..."` $\to$ Score: `0.20`
+        *   `MaxScore` = `0.85` ($\ge 0.70$).
+        *   **Action:** Match found. Trigger `focus_card` to scroll back.
+    *   *Case B (Does NOT Answer):*
         *   New Query: `"Rishihood University campus hostel infrastructure"`
-        *   Existing Card Text: `"Our CS & AI degree is fully UGC-recognized through Rishihood University..."` (contains no hostel data).
-        *   Similarity Score: `0.45` ($< 0.70$).
-        *   **Action:** Card does not answer this question. Fall through to query RAG/Tavily and generate a **new card**.
+        *   Bullet 1: `"Our CS & AI degree is fully UGC-recognized through Rishihood..."` $\to$ Score: `0.45`
+        *   Bullet 2: `"Batches start in January..."` $\to$ Score: `0.10`
+        *   `MaxScore` = `0.45` ($< 0.70$).
+        *   **Action:** Card does not answer this question. Fall through to generate a **new card**.
 
 ---
 
