@@ -50,15 +50,6 @@ const getCategoryBehavior = (catKey, playbookId) => {
   return config.behavior || "ai";
 };
 
-const getCategoryExactOutput = (catKey, playbookId) => {
-  const config = categoriesConfig[catKey];
-  if (!config) return null;
-  if (config.exactOutput && typeof config.exactOutput === "object") {
-    return config.exactOutput[playbookId] || config.exactOutput.default || null;
-  }
-  return config.exactOutput || null;
-};
-
 const getCategoryGuidelineText = (catKey, playbookId) => {
   const config = categoriesConfig[catKey];
   if (!config) return null;
@@ -262,22 +253,23 @@ wss.on("connection", async (ws, req) => {
 
     console.log(`[Role Mapping] Speaker ${utt.speaker} classified as ${currentRole} (Rep ID: ${repSpeakerId ?? 0})`);
 
-    let customGuidelines = [];
+    let matchedKeywordGuidelines = [];
 
-    // 0. UNIFIED MULTI-KEYWORD SCANNER (Case-Insensitive Bypasses & Guidelines)
+    // 0. UNIFIED KEYWORD SCANNER (Case-Insensitive Bypass Zero-Shot NLI & Guideline Accumulator)
     const playbookBypasses = keywordBypasses[playbook] || [];
     const lowerText = utt.text.toLowerCase();
 
-    const matchedBypasses = [];
     const matchedBypassKeywords = new Set();
 
     for (const b of playbookBypasses) {
       const kws = b.keywords || [b.keyword];
       const matchingKeywords = kws.filter(kw => lowerText.includes(kw.toLowerCase()));
       if (matchingKeywords.length > 0) {
-        matchedBypasses.push(b);
         for (const kw of matchingKeywords) {
           matchedBypassKeywords.add(kw.toLowerCase());
+        }
+        if (b.behavior === "guideline" && b.guidelineText) {
+          matchedKeywordGuidelines.push(b.guidelineText);
         }
       }
     }
@@ -285,37 +277,6 @@ wss.on("connection", async (ws, req) => {
     // Active core safeguards (excluding dynamically overridden keywords)
     const activeCoreKeywords = CORE_SALES_KEYWORDS.filter(kw => !matchedBypassKeywords.has(kw.toLowerCase()));
     const matchedCore = activeCoreKeywords.filter(kw => lowerText.includes(kw.toLowerCase()));
-
-    const exactOutputBypasses = matchedBypasses.filter(b => b.behavior === "exact_output");
-    const guidelineBypasses = matchedBypasses.filter(b => b.behavior === "guideline");
-    const aiBypassesCount = matchedBypasses.filter(b => b.behavior === "ai").length + matchedCore.length;
-
-    // Collect custom guidelines for LLM 2 prompt injection
-    customGuidelines = guidelineBypasses.map(b => b.guidelineText);
-
-    if (exactOutputBypasses.length > 0) {
-      console.log(`[KeywordBypass] Matched ${exactOutputBypasses.length} exact output bypasses.`);
-      
-      for (const bypass of exactOutputBypasses) {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({
-            type: "ai_suggestion",
-            data: {
-              text: `• ${bypass.directionText || "Direct Cue"} (Say: "${bypass.sayText}")`,
-              category: "KEYWORD_BYPASS",
-              timestamp: Date.now()
-            }
-          }));
-        }
-      }
-
-      // Scenario A: ONLY exact outputs matched. Exit early!
-      if (guidelineBypasses.length === 0 && aiBypassesCount === 0) {
-        console.log("[KeywordBypass] Only exact output matched. Exiting early.");
-        return;
-      }
-      console.log("[KeywordBypass] Mixed matches detected. Sending exact output and continuing with background AI flow.");
-    }
 
     // Run EventDetector for both Customer and Rep utterances
     const groqApiKey = process.env.GROQ_API_KEY;
@@ -373,40 +334,28 @@ wss.on("connection", async (ws, req) => {
           return `${friendlyName}${i.entity ? ` (${i.entity})` : ''}`;
         }).join(", ");
 
-        // Step A: Check for category bypass overrides or custom guideline injections
-        let bypassOutput = null;
+        // Step A: Check for category guideline overrides or custom guideline injections
         let customGuidelinesText = "";
+        const categoryGuidelines = [];
 
         for (const intent of detectResult.intents) {
           const behavior = getCategoryBehavior(intent.cat, playbook);
-          if (behavior === "bypass") {
-            bypassOutput = getCategoryExactOutput(intent.cat, playbook);
-            if (bypassOutput) break;
-          } else if (behavior === "guideline") {
+          if (behavior === "guideline") {
             const guide = getCategoryGuidelineText(intent.cat, playbook);
             if (guide) {
-              customGuidelinesText += `\n• ${guide}`;
+              categoryGuidelines.push(guide);
             }
           }
         }
 
-        if (customGuidelines && customGuidelines.length > 0) {
-          customGuidelinesText += `\n` + customGuidelines.map(g => `• ${g}`).join("\n");
-        }
+        // Combine category guidelines and matched keyword guidelines
+        const combinedGuidelines = [
+          ...categoryGuidelines,
+          ...matchedKeywordGuidelines
+        ];
 
-        if (bypassOutput) {
-          console.log(`[CategoryBypass] Triggering immediate override bypass for active categories: "${bypassOutput}"`);
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({
-              type: "ai_suggestion",
-              data: {
-                text: bypassOutput,
-                category: detectResult.intents[0].cat,
-                timestamp: Date.now()
-              }
-            }));
-          }
-          return;
+        if (combinedGuidelines.length > 0) {
+          customGuidelinesText = "\n" + combinedGuidelines.map(g => `• ${g}`).join("\n");
         }
 
         let combinedFacts = "";

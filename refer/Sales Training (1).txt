@@ -1,0 +1,202 @@
+﻿
+Prospect checklist
+
+1. Tip: Be energetic and excited. 
+2. Probing: DS and AI Placement Program / Are you looking for jobs in Data domain
+3. Probing: How did you hear about Newton School? Any required followups.
+4. Pitch: About Newton School (Brief) / About counsellor
+5. Probing: Education Qualification (Graduation year, Degree, College, Stream, % marks)
+6. Probing: Job History (Role, Time, Company, Salary, Current tools)
+7. Probing: What are they looking for? How long have they been (Job/Course)
+8. Probing: Do they know about the data science domain? How much do they know? How long have they been researching? 
+9. Probing: What are their skill levels? Drill down. 
+10. Pitch: About Newton School. Detailed, build credibility. 
+11. Pitch: About Data Science. Field and examples. 
+12. Pitch: About how your persona can get into Data Science roles. Examples.
+13. Pitch: DS Full program details. 
+14. Probing: What are their timelines looking for? 
+15. Tip: Acknowledge their answers / appreciate where needed / build rapport / have a cheerful demeanor (this helps people lower their guard)
+16. Tip: Be a good listener. Don't have a one sided conversation, get them to open up. 
+17. Pitch: Pitching fees well.
+18. Probing: Their financial status and constraints. 
+19. Tip: In addition to pitches, take acknowledgements and objections. By the end of the call you should understand the biggest objections of the candidate.
+20. Be open to understanding their budget and the program that they will be a good fit for. 
+
+
+
+
+
+
+
+
+
+
+
+     
+     Probing Deep Dive 
+1. Probing: DS and AI Placement Program / Are you looking for jobs in the Data domain?
+a. So are you currently looking for jobs or assistance with finding jobs? Which domain are you looking for?
+b. What are you looking for? Any specific kind of course or job roles?  
+i. Should be out of:
+1. Jobs
+2. Courses for upskilling and placement support
+3. Not actively looking for courses, just exploring the data domain. In this case, try to deep down more on their dream career/job, then pivot to NS.
+
+2. Probing: How did you hear about Newton School? Any required followups.
+a. Social media: Ask if they remember any specific ad
+b. Friends & family: Ask if someone got placed from NS
+c. Google search
+
+3. Pitch: About Newton School (Brief) / About counsellor
+a. About NS:
+i. A lot of learners trust Newton School because they support students till placement. They've helped 4,500+ people get placed and work with over 800 hiring partners.
+ii. Newton School basically logon ko tech roles mein help karta hai, chahe background tech ho ya non-tech. Abhi tak 4,500+ placements ho chuki hain, 800+ companies ke saath kaam karte hain, aur placement tak support dete rehte hain.
+b. About counselor:
+i. Hi, I am XYZ, I am an academic counselor/program manager/senior program manager at NS. I have been in this field for 4-5 years now and have seen 100s of my students getting placed in their dream roles.
+
+4. Probing: Education Qualification (Graduation year, Degree, College, Stream, % marks)
+a. Can you please let me know a little bit about your background, like your graduation level, when did you graduate etc.
+
+5. Probing: Job History (Role, Time, Company, Salary, Current tools)
+a. Are you working right now? Did you get the job via college placements(if he/she is placed)? In case he/she is in college, "How are your thoughts on your college's placement scenario, like what are your expectations in college placements?"
+b. What are some of the tools you use for your work on a daily basis?
+c. What is your current CTC(this also opens a path to compare his/her current state with what can be achieved after doing this course)
+
+6. Probing: What are they looking for? (Job/Course)
+a. Same as point 1
+
+7. Probing: Do they know about the data science domain? How much do they know? How long have they been researching? 
+a. If they are sure about getting a job in the data field, continue with the pitch.
+b. Else, mention the volume of jobs in data domain in the market, how can people from any background transition to this field, the ROI, finally compare the lead's career goal with DS path in terms of CTC, growth etc.
+
+8. Probing: What are their skill levels? Drill down. 
+a. What skills do you have? Do you know python, SQL, excel, etc. After their answer, ask them if they can answer some basic concept questions, e.g., ask "Let us say I ask you to tell me the difference between VLOOKUP and XLOOKUP, will you be able to tell me?". Do not ask for the answer to the question, just get an idea of the lead saying that he/she can answer this or not, depicting their understanding of the concepts.
+
+9. Pitch: About Newton School. Detailed, build credibility. 
+a. NS is a placement company started by IIT and IIM alumni which gets people jobs in the Data domain. We are one of the largest placement programs in India for data science and the only platform that gives you lifetime placement assistance. 
+b. A lot of learners trust Newton School because they support students till placement. They've helped 4,500+ people get placed and work with over N number of hiring partners.
+c. Talk about companies. 
+i. We have more than N number of hiring partners, out of which, some of the notable names are Amazon, Cred, Meesho, Zepto, Goldman Sachs, IBM etc.
+
+10. Pitch: About Data Science. Field and examples. 
+a. Do you know someone in the IT field? 
+i. Yes; Just ask them about the field and how they are doing in it. I can assure you they are doing way better as compared to what they would have done in some other field and they have a clear pathway ahead of them as well for the next years in their career.
+b. DA, BA, DS. 
+i. Roles and responsibilities of the mentioned job titles, along with some industry implementation examples, mentioning the work in MAANG/FAANG companies.
+c. Talk about use cases. 
+d. Do they feel that they can do it? 
+i. But I need to ask you, do you feel like you can spend time learning right now? Time? This comes after describing the course, might as well after fees.
+
+11. Pitch: About how your persona can get into Data Science roles. Examples.
+a. Compare the trajectory of DS with the current background of the lead.
+b.  Give examples of previously placed alums from the same background. 
+c. To build belief in DS as a career option, give examples of the use of data in industries of lead's domain.
+12. Pitch: DS Full program details. 
+a. 
+13. Probing: What are their timelines looking for? 
+a. When are you planning to start a course? If tells about a batch later than the next one, start explaining the hiring drive timeline.
+
+14. Pitch: Pitching fees well
+a. So, the course is priced at 2.25L, and it comes with a scholarship of up to 40,000 rupees. We are affiliated with NSDC and as a part of our admission process, the fee is determined on the basis of your performance in the interview and test, which can bring the fees down to a mere 1.85L. Now, you are not required to pay all this at once. This can be converted into EMIs of up to 36 months, which comes at a very low cost of 6500 a month. Also, you will not be paying any amount in your first month at NS, so let us say your batch starts in January, the first installment will be in February. Also, since you are open to placement opportunities after just 4 months into the program, you can secure a job after the first 4 months and take care of the EMI on your own.
+
+b. This course starts at an EMI of 6500 a month which can be chosen over a duration of 12 months, 24 months or 36 months. Also, you will not be paying any amount in your first month at NS, so let us say your batch starts in January, the first installment will be in February. Also, since you are open to placement opportunities after just 4 months into the program, you can secure a job after the first 4 months and take care of the EMI on your own. If you wish to make a one-time payment, the course is priced at 2.25L, and it comes with a scholarship of up to 40,000 rupees. We are affiliated with NSDC and as a part of our admission process, the fee is determined on the basis of your performance in the interview and test, which can bring the fees down to a mere 1.85L. 
+
+15. Probing: Their financial status and constraints. 
+a. So how are you planning to take care of the finances? Now, this leads to parents paying initial installments of EMI, upfront amount, or payment of EMIs by the lead themselves. Would you be paying the fees yourself or
+b. Parents paying fees
+c. Their financial constraints
+d. Would you prefer emi or one time payment
+
+
+     
+     
+     Base Pitches
+
+
+- About Data Science
+
+Base Pitch: 
+- Use cases: Industries -> Plug NS. Our students, our alumni. 
+- In today's world, data is the sector creating the most number of jobs in the market. People talk about AI disrupting jobs and it is doing that in the software domain, but if you look at companies, they are hiring for data roles the same was as they used to do earlier, if not more. And this is the reason why a lot of candidates we have in our batch do come from various domains, coding, non tech, core jobs, field work jobs and want to switch to data science. We have students who were earlier working as python developers, someone from the zoology domain, someone who prepared for govt jobs, design engineers and many more who have switched their careers to data science. We have seen people getting placed in all domains of the company, AI companies, e-commerce, quick commerce, fitness, education, you name the domain and we have seen students getting into data roles in that domain.
+- Salary buckets. 
+- First ask the current CTC. Then, "After the first cycle of placements, which happens just 4 months after your classes start, you can easily expect to land a job of CTC 7-15 LPA. "
+- Career graph
+- Start by mentioning the 7-15 LPA CTC part. Then, also mention the later phases of the course, which has Python, ML etc. taking the candidate up to the level of a data scientist, which gets paid easily around 20 LPA+. Portray this as a journey of 4 months with a sure shot job of 7-15 LPA and if continued with the course, can go up to 20 LPA+.
+- Type of work 
+- So the type of work you will be doing in these roles will revolve around getting insights from data which will eventually impact the business you are working for. Let us say if you work at a company like zepto or reliance, you will be keeping a track of their inventory management and based on the previous data, you will also be predicting which kind of goods are required for which store based on the region. Similarly, if you work for an automobile company, you will be getting insights on how the previous pre bookings have performed for the newly launched vehicle, which helps the company in determining the number of vehicles they should put in production before the launch date, and so on.
+- IT non IT
+- Non IT fields are going to be redundant after some time, their is a ceiling to it, above that you can't grow. Whereas in IT, you can start from a Data Analyst, move to business analyst and then reach to the level of a data scientist within 1-2 yrs with NS. After that also, you can move up the ladder to go till senior data scientist and then to specializations like in geo mapping, AI automation, etc.
+
+	Relevant Objections
+- I want a pharmacy job. 
+- What is the career trajectory for you as of now, like for the next 3-4 years and how much are you expecting to earn during this phase? Then put the DS journey by comparing CTCs.
+
+- Looking for Govt job
+- See, you have already put in a lot of time in this. We have seen people preparing for govt jobs for years and then coming to corporate sector. What I am trying to tell you is that it is not too late for you to switch to the data side, leaving the govt job prep, but anything later than this will not leave you with any options on this side. And let us say, God forbid the preparation doesn't work out, then you will be left with no other option and that too when you have a long career gap in your CV. 
+- What is the salary you are expecting after getting into the govt job you want? Then compare CTCs.
+
+
+- About NS
+
+Base Pitch:
+Relevant Objections
+- How are you different from people like Simplilearn? 
+- Placement oriented, industry experts as mentors who are working in top companies like Google, Amazon etc., we provide lifetime placement support.
+- If competitor is expensive: Directly mention having same offerings at lesser price. This has to be done by comparing each USP of both courses(NS and competitor)
+- If the competitor is cheaper: Focus on quality of instructors, lifetime placement support(Subhadip's example who got his first and second job via NS), company specific preparation sessions before each round etc.
+- If they are more aligned with the competitor: Connect with alum of similar background for trust building, do not direct the lead towards negative reviews of the competitor as this might backfire. Might share some PR articles as well.
+
+
+
+
+
+
+- About the program and fit.
+Base Pitch: 
+So, this is a placement oriented DS and AI program, which comes in with lifetime placement support. Here, we teach you topics starting from Excel, SQL, PowerBI, Python to advanced ML. This opens up opportunities for you in roles like DA, BA, all the way up to a Data Scientist, with a potential salary of 25 LPA+. The companies which we get for you across all these roles include top MNCs like Amazon, Flipkart, Meesho, IBM etc. because job security is also a big issue nowadays. Now, how will it all happen after you enroll at NS? At NS, we provide you with the best mentorship available via industry experts who themselves are working at top companies like Google, Amazon etc. You have live classes which take place thrice a week, MWF from 9 pm to 11 pm. And this is not all, apart from live classes, we provide you with 1:1 mentorship as well, there will be a subject matter expert(might change the title) just for you so that you can book your doubt sessions with them at any time of the day, so this is the 1:1 mentorship we provide you with. Now, after you get placement ready after 4 months, based on your performance and progress, we put you in the pool of our placement ready students, who are then provided with additional sessions for grooming, communication skills, resume optimisation and within a couple of days of this process, we start offering you referral opportunities for your desired roles. There is no maximum number of referrals, so you can sit for any number of companies you wish for till you crack your desired role.
+
+
+
+
+- Fees and ROI
+Base Pitch:
+- So, the course is priced at 2.25L, and it comes with a scholarship of up to 40,000 rupees. We are affiliated with NSDC and as a part of our admission process, the fee is determined on the basis of your performance in the interview and test, which can bring the fees down to a mere 1.85L. Now, you are not required to pay all this at once. This can be converted into EMIs of up to 36 months, which comes at a very low cost of 6500 a month. Also, you will not be paying any amount in your first month at NS, so let us say your batch starts in January, the first installment will be in February. Also, since you are open to placement opportunities after just 4 months into the program, you can secure a job after the first 4 months and take care of the EMI on your own.
+
+- This course starts at an EMI of 6500 a month which can be chosen over a duration of 12 months, 24 months or 36 months. Also, you will not be paying any amount in your first month at NS, so let us say your batch starts in January, the first installment will be in February. Also, since you are open to placement opportunities after just 4 months into the program, you can secure a job after the first 4 months and take care of the EMI on your own. If you wish to make a one-time payment, the course is priced at 2.25L, and it comes with a scholarship of up to 40,000 rupees. We are affiliated with NSDC and as a part of our admission process, the fee is determined on the basis of your performance in the interview and test, which can bring the fees down to a mere 1.85L. 
+
+
+Relevant Objections and how to handle it
+- Intellipat/XYZ company is offering a DS course in 60K:
+- Focus on quality of instructors, lifetime placement support(Subhadip's example who got his first and second job via NS), company specific preparation sessions before each round etc. Compare placement support of NS with the competitor.
+
+- What if I don't get placed in 4 months:
+- Build a conviction in the lead that they can devote their time to the course, along with mentioning effort from NS's mentors, groomers, interview prep, placement team etc. Ex: If we are committed to providing you with the best mentorship available in the industry from the people who are working in their dream roles, we have mentorship, grooming, interview prep sessions for you and in return you put in effort from your end as well, which is not more than 3-4 hrs a day, then how is it possible that you don't get a job. We are sure about our commitment to the students and you can see it on our website, in our brochure as well by looking at the number of candidates we have placed till now and the number of hiring partners we work with.
+
+
+- Joining timeline(repeated)
+- When are you planning to start a course? If tells about a batch later than the next one, start explaining the hiring drive timeline.
+
+- Next steps push
+- Test: The test is free of cost to attempt, and you get an idea of how much scholarship you will get. Also you do not have to prepare for it as it has basic aptitude, logical reasoning, English etc. which you are already well versed with in just 45 mins, which is not too long. 
+- Session: Being in a session does not mean you have to take up the course, the session is meant to address your concerns about your career, let you figure out what is right for your career based on what you are up to now and what we feel you can achieve in the coming months. Even after the session you feel the course is not a right fit for you, we can discuss that as well.
+
+- Other Programs fit
+- After knowing the financial capabilities, graduation requirement, alignment with course timeline and fees, see which program can cater to the lead, if not the full program. If they do not wish to go ahead with the DS course, understand their requirements and if possible, ask them which kind of offering will suit you the most as we have offerings for every profile of learner.
+Note: This has to be done after the lead has made up mind to not go ahead with the DS course, which might happen or might not happen on the first call.
+
+
+
+- Other pointers
+- Pitch pointers
+
+
+
+
+- Objections
+- Negative reviews. 
+- Compilation video of alums addressing negative reviews(only when lead explicitly mentions about negative reviews)
+
+- Everyone talks about lifetime placement support but it is a scam:
+- We have cases where students have secured their first job with us, then when they want to go to a different company, we have helped them again to land their second job. In some cases, people have come to us for their 3rd job as well and we have helped them get it. Tell about Subhadip Das's case, where he got his first job via NS and second too.
+
+

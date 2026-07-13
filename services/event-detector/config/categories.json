@@ -1,0 +1,91 @@
+{
+  "BUDGET": {
+    "label": "Pricing, Cost & Budget Concerns",
+    "description": "Concerns or questions about cost, pricing, fees, expensive subscriptions, or discount requests.",
+    "type": "private",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "TIMELINE": {
+    "label": "Timeline, Scheduling & Onboarding Speed",
+    "description": "Concerns or questions about implementation timeline, onboarding speed, scheduling, class timing, or launch delays.",
+    "type": "public",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "SWITCHING": {
+    "label": "Switching Providers & Contract Lock-in",
+    "description": "Friction or questions about migrating from a current provider, switching career tracks, or vendor lock-in contracts.",
+    "type": "public",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "COMPETITOR": {
+    "label": "Competitor Mentioned",
+    "description": "Mention of competitor platforms or schools (Salesforce, HubSpot, Masai School, Scaler, Coding Ninjas, etc.).",
+    "type": "public",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "BUY_SIGNAL": {
+    "label": "Buying Signal / Next Steps",
+    "description": "Asks for next steps, scheduling, booking a session, taking a free aptitude/scholarship test, or explicitly agreeing to a Rep's direct next-step proposal.",
+    "type": "private",
+    "behavior": {
+      "saas": "guideline",
+      "default": "ai"
+    },
+    "guidelineText": {
+      "saas": "Instruct the Rep to suggest setting up a 15-minute trial onboarding sandbox next Tuesday to let the customer test it directly.",
+      "default": null
+    }
+  },
+  "INQUIRY": {
+    "label": "Product / General Inquiry",
+    "description": "Standard product, course, curriculum, syllabus, or general questions.",
+    "type": "public",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "FEES": {
+    "label": "Fees, Financing & Scholarships",
+    "description": "Concerns or questions about course fees, ISA terms, loan EMIs, payment structures, or scholarship details (Newton School context).",
+    "type": "private",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "PLACEMENT": {
+    "label": "Job Placements, CTC & Career Support",
+    "description": "Concerns or questions about job placement support, CTC packages, LPA expectations, or partner networks (Newton School context).",
+    "type": "private",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "DEGREE": {
+    "label": "Degree Accreditation & Rishihood University Affiliation",
+    "description": "Concerns or questions about degree credibility, UGC approval, or Rishihood University affiliation (Newton School context).",
+    "type": "private",
+    "behavior": {
+      "newtonschool": "guideline",
+      "default": "ai"
+    },
+    "guidelineText": {
+      "newtonschool": "Newton School of Technology B.Tech CS & AI is fully UGC-recognized through Rishihood University, ensuring standard academic accreditation.",
+      "default": null
+    }
+  },
+  "CLIENT_PROFILE": {
+    "label": "Client Profile & Company Context",
+    "description": "Questions or comments about Hearthline's brand profile, Shopify, GA4, HubSpot, Northbeam, team size (30 or 300), DTC products (sleep, kitchen, small-space), workflow, CAC, or merchandising.",
+    "type": "private",
+    "behavior": "ai",
+    "guidelineText": null
+  },
+  "NONE": {
+    "label": "No Specific Objection / Topic",
+    "description": "General backchanneling/agreement (e.g. \"yeah\" when Rep is talking), small talk, basic greetings, or neutral identification checks.",
+    "type": "private",
+    "behavior": "ai",
+    "guidelineText": null
+  }
+}
