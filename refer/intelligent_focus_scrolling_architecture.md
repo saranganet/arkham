@@ -10,9 +10,9 @@ To maintain a logical timeline, the chronological order of cards in `focusQueue`
 
 ### A. Focused Slot Mapping
 *   The React app maintains an active index `focusedIndex` (defaults to the last card).
-*   The card at `focusQueue[focusedIndex]` receives the active class `.card-current` (Slot 1: glowing border, 100% opacity).
-*   The card at `focusQueue[focusedIndex - 1]` (if it exists) receives the class `.card-previous` (Slot 2: 40% opacity, scaled down, blurred).
-*   All other cards receive the class `.card-docked` (rendered as collapsed titles or scrolled out of view).
+*   The card at `focusQueue[focusedIndex]` receives the active class `.card-current` (glowing/highlighted border, 100% opacity).
+*   The card at `focusQueue[focusedIndex - 1]` (if it exists) receives the class `.card-previous` (standard border, 100% opacity, no scale down, no blur).
+*   All other cards are rendered normally in the scrollable timeline feed.
 
 ### B. Rep-Driven Scroll-Focus
 *   The browser client continuously embeds the Rep's spoken sentences.
